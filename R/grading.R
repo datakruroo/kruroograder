@@ -7,6 +7,7 @@
 #' @param key Answer key object from load_answer_key() (optional)
 #' @param template_path Path to grading template file
 #' @param model_config List with model configuration (model name, etc.)
+#' @param system_prompt Custom system prompt for LLM (optional)
 #' @param .progress Show progress bar with percentage (default: TRUE)
 #' @param .parallel Use parallel processing (default: FALSE)
 #' @param .cores Number of cores for parallel processing (default: detectCores() - 1)
@@ -16,26 +17,57 @@
 #' \dontrun{
 #' responses <- read_csv("data/responses.csv")
 #' rubric <- load_rubric("rubric/item_001.md")
+#' key <- load_answer_key("rubric/item_001_key.md")
 #' 
-#' # Sequential processing
-#' results <- grade_responses(responses, rubric)
+#' # Sequential processing (default)
+#' results <- grade_responses(responses, rubric, key)
 #' 
 #' # Parallel processing with 4 cores
-#' results <- grade_responses(responses, rubric, .parallel = TRUE, .cores = 4)
+#' results <- grade_responses(responses, rubric, key, .parallel = TRUE, .cores = 4)
+#' 
+#' # Custom system prompt - strict grading
+#' strict_prompt <- "ให้คะแนนอย่างเข้มงวดตาม rubric ไม่ให้คะแนนเต็มง่ายๆ"
+#' results <- grade_responses(responses, rubric, key, system_prompt = strict_prompt)
+#' 
+#' # Custom system prompt - encouraging feedback
+#' encouraging_prompt <- "ให้คะแนนที่เป็นธรรมและ feedback ที่สร้างสรรค์"
+#' results <- grade_responses(responses, rubric, key, system_prompt = encouraging_prompt)
+#' 
+#' # Complete example with all options
+#' results <- grade_responses(
+#'   responses = responses,
+#'   rubric = rubric,
+#'   key = key,
+#'   system_prompt = "ประเมินอย่างรอบด้านและให้คำแนะนำที่เป็นประโยชน์",
+#'   model_config = "gpt-5-nano",
+#'   .parallel = TRUE,
+#'   .cores = 4,
+#'   .progress = TRUE
+#' )
 #' }
 grade_responses <- function(responses, rubric, key = NULL, 
                            template_path = NULL, model_config = NULL, 
+                           system_prompt = NULL,
                            .progress = TRUE, .parallel = FALSE, .cores = NULL) {
   
   # Set defaults
   if (is.null(template_path)) {
     template_path <- system.file("templates", "grade_template.md", package = "kruroograder")
   }
+  # Handle model_config parameter
   if (is.null(model_config)) {
     model_config <- list(model = "gpt-5-nano", provider = "openai")
+  } else if (is.character(model_config)) {
+    # If user passes just model name as string
+    model_config <- list(model = model_config, provider = "openai")
+  } else if (!is.list(model_config)) {
+    stop("model_config must be a list or character string")
   }
   if (is.null(.cores)) {
     .cores <- max(1, future::availableCores() - 1)
+  }
+  if (is.null(system_prompt)) {
+    system_prompt <- "คุณเป็นอาจารย์ผู้เชี่ยวชาญด้าน data-driven classroom มีหน้าที่ประเมินผลการตอบของนักเรียนอย่างตามเกณฑ์ที่กำหนดอย่างตรงไปตรงมาและเป็นธรรม คงเส้นคงวาในการให้คะแนน ใช้หลักการประเมินแบบเดียวกันสำหรับทุกคำตอบ"
   }
   
   # Create grading schema
@@ -88,6 +120,11 @@ grade_responses <- function(responses, rubric, key = NULL,
     tryCatch({
       response_row <- responses[i, ]
       
+      # Ensure response_row is a data.frame, not a vector
+      if (!is.data.frame(response_row)) {
+        response_row <- as.data.frame(response_row)
+      }
+      
       # Render prompt
       prompt <- render_prompt(template_path, rubric, key, response_row)
       
@@ -95,7 +132,7 @@ grade_responses <- function(responses, rubric, key = NULL,
       messages <- tibble::tibble(
         role = c("system", "user"),
         content = c(
-          "คุณเป็นอาจารย์ผู้เชี่ยวชาญด้าน data-driven classroom มีหน้าที่ประเมินผลการตอบของนักเรียนอย่างตามเกณฑ์ที่กำหนดอย่างตรงไปตรงมาและเป็นธรรม คงเส้นคงวาในการให้คะแนน ใช้หลักการประเมินแบบเดียวกันสำหรับทุกคำตอบ",
+          system_prompt,  # Use the configurable system prompt
           prompt
         )
       ) %>%
@@ -105,7 +142,7 @@ grade_responses <- function(responses, rubric, key = NULL,
       result <- tidyllm::chat(
         messages, 
         tidyllm::openai(),
-        .model = model_config$model,
+        .model = as.character(model_config$model %||% "gpt-5-nano"),
         .json_schema = schema
       )
       
@@ -114,8 +151,8 @@ grade_responses <- function(responses, rubric, key = NULL,
       per_criterion_normalized <- normalize_per_criterion_local(graded_result$per_criterion %||% list())
       
       list(
-        student_id = as.character(response_row$student_id %||% "unknown"),  # Use input data, not LLM response
-        item_id = as.character(graded_result$item_id %||% response_row$item_id %||% "unknown"),
+        student_id = as.character(response_row$student_id[1] %||% "unknown"),  # Add [1] for safety
+        item_id = as.character(graded_result$item_id %||% response_row$item_id[1] %||% "unknown"),
         total_score = as.numeric(graded_result$total_score %||% 0),
         per_criterion = per_criterion_normalized,
         overall_feedback = as.character(graded_result$overall_feedback %||% "")
@@ -123,9 +160,19 @@ grade_responses <- function(responses, rubric, key = NULL,
       
     }, error = function(e) {
       logger::log_error("Error grading response {i}: {e$message}")
+      # Safely access response_row in error case
+      safe_student_id <- tryCatch(
+        as.character(responses[i, ]$student_id[1] %||% "unknown"),
+        error = function(e2) "error"
+      )
+      safe_item_id <- tryCatch(
+        as.character(responses[i, ]$item_id[1] %||% "unknown"),
+        error = function(e2) "error"
+      )
+      
       list(
-        student_id = as.character(response_row$student_id %||% "unknown"),  # Use input data consistently
-        item_id = as.character(response_row$item_id %||% "unknown"),
+        student_id = safe_student_id,
+        item_id = safe_item_id,
         total_score = 0,
         per_criterion = list(),
         overall_feedback = paste("Error during grading:", e$message)

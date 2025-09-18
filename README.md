@@ -196,8 +196,7 @@ if (should_use_parallel(n_students)) {
 # กำหนดค่าโมเดลเอง
 custom_model_config <- list(
   model = "gpt-4o-mini",      # เปลี่ยนโมเดล
-  provider = "openai",        # ผู้ให้บริการ
-  temperature = 0.1           # ความสร้างสรรค์ (0-1)
+  provider = "openai"         # ผู้ให้บริการ
 )
 
 results_custom <- grade_responses(
@@ -207,6 +206,39 @@ results_custom <- grade_responses(
   model_config = custom_model_config,
   .parallel = TRUE,
   .cores = 4
+)
+```
+
+#### 4.4 การปรับแต่ง System Prompt
+```r
+# ตัวอย่าง 1: อาจารย์เข้มงวด
+strict_prompt <- "คุณเป็นอาจารย์ที่เข้มงวดและใช้เกณฑ์สูง ให้คะแนนอย่างเข้มข้น ไม่ให้คะแนนเต็มง่ายๆ และชี้ข้อผิดพลาดอย่างชัดเจน"
+
+results_strict <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = answer_key,
+  system_prompt = strict_prompt
+)
+
+# ตัวอย่าง 2: อาจารย์ให้กำลังใจ
+encouraging_prompt <- "คุณเป็นอาจารย์ที่ให้กำลังใจและสร้างแรงบันดาลใจ ให้คะแนนอย่างเป็นธรรมแต่เน้นการให้คำแนะนำเชิงบวกและสร้างสรรค์"
+
+results_encouraging <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = answer_key,
+  system_prompt = encouraging_prompt
+)
+
+# ตัวอย่าง 3: ภาษาอังกฤษ
+english_prompt <- "You are an expert educator specializing in data-driven classroom assessment. Grade student responses fairly and consistently according to the provided rubric."
+
+results_english <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = answer_key,
+  system_prompt = english_prompt
 )
 ```
 
@@ -290,12 +322,70 @@ Generated on: 2024-01-15 14:30:25
 |---------|----------|----------------|
 | `load_rubric()` | โหลดเกณฑ์การให้คะแนน | `rubric <- load_rubric("rubric/item_001.md")` |
 | `load_answer_key()` | โหลดเฉลยและแนวคำตอบ | `key <- load_answer_key("rubric/item_001_key.md")` |
-| `grade_responses()` | ตรวจและให้คะแนน (หลัก) | `results <- grade_responses(responses, rubric, key, .parallel = TRUE)` |
+| `grade_responses()` | ตรวจและให้คะแนน (หลัก) | `results <- grade_responses(responses, rubric, key, .parallel = TRUE, system_prompt = "custom prompt")` |
 | `should_use_parallel()` | ตรวจสอบว่าควรใช้ parallel | `if(should_use_parallel(n)) { ... }` |
 | `get_optimal_cores()` | หาจำนวน cores ที่เหมาะสม | `cores <- get_optimal_cores(nrow(responses))` |
 | `export_results()` | ส่งออกผลลัพธ์ | `export_results(results, "output.csv")` |
 | `create_grading_report()` | สร้างรายงานสรุป | `create_grading_report(results, "report.md")` |
 | `validate_response_data()` | ตรวจสอบข้อมูล input | `validate_response_data(responses)` |
+| `view_student_results()` | ดูรายละเอียดนักเรียน | `view_student_results(results, 1)` |
+| `extract_criteria_scores()` | แยกคะแนนแต่ละ criterion | `extract_criteria_scores(results)` |
+
+## 🎨 การปรับแต่ง System Prompt
+
+### ประเภทของ System Prompt
+
+#### 1. **อาจารย์เข้มงวด**
+```r
+strict_prompt <- "คุณเป็นอาจารย์ที่เข้มงวดและใช้เกณฑ์สูง ให้คะแนนอย่างเข้มข้นตามรายละเอียดใน rubric อย่างเคร่งครัด ไม่ให้คะแนนเต็มง่ายๆ หากคำตอบไม่ครบถ้วนสมบูรณ์"
+
+results <- grade_responses(responses, rubric, key, system_prompt = strict_prompt)
+```
+
+#### 2. **อาจารย์ให้กำลังใจ**
+```r
+encouraging_prompt <- "คุณเป็นอาจารย์ที่ให้กำลังใจและสร้างแรงบันดาลใจ ให้คะแนนอย่างเป็นธรรมแต่เน้นการให้คำแนะนำเชิงบวก ชี้จุดแข็งก่อนจุดที่ควรปรับปรุง และให้คำแนะนำที่สร้างสรรค์"
+
+results <- grade_responses(responses, rubric, key, system_prompt = encouraging_prompt)
+```
+
+#### 3. **ผู้เชี่ยวชาญเฉพาะทาง**
+```r
+expert_prompt <- "คุณเป็นผู้เชี่ยวชาญด้านการศึกษาและการประเมินผล มีประสบการณ์ในการใช้ข้อมูลเพื่อการเรียนการสอนมากว่า 15 ปี ให้คะแนนด้วยความเข้าใจลึกในสาขาวิชา"
+
+results <- grade_responses(responses, rubric, key, system_prompt = expert_prompt)
+```
+
+#### 4. **การประเมินแบบโฮลิสติก**
+```r
+holistic_prompt <- "ประเมินคำตอบอย่างรอบด้าน มองภาพรวมของความเข้าใจและการคิดวิเคราะห์ของนักเรียน ไม่เพียงแค่ดูคำตอบที่ถูกต้องแต่ดูกระบวนการคิดด้วย"
+
+results <- grade_responses(responses, rubric, key, system_prompt = holistic_prompt)
+```
+
+#### 5. **ภาษาอังกฤษ**
+```r
+english_prompt <- "You are an expert educator specializing in assessment and evaluation. Grade student responses fairly and consistently, providing constructive feedback that promotes learning."
+
+results <- grade_responses(responses, rubric, key, system_prompt = english_prompt)
+```
+
+### การรวม System Prompt กับ Parallel Processing
+
+```r
+# กรณีมีนักเรียนจำนวนมาก ใช้ parallel processing พร้อม custom prompt
+custom_prompt <- "ให้คะแนนอย่างเป็นธรรมและสม่ำเสมอ เน้นการให้ feedback ที่มีประโยชน์"
+
+large_results <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = answer_key,
+  system_prompt = custom_prompt,
+  .parallel = TRUE,
+  .cores = get_optimal_cores(nrow(responses)),
+  .progress = TRUE
+)
+```
 
 ## ⚡ Performance และ Best Practices
 
@@ -305,19 +395,26 @@ Generated on: 2024-01-15 14:30:25
 # ตัวอย่างการใช้งานที่มีประสิทธิภาพ
 n_students <- nrow(responses)
 
+# เลือก system prompt ตามวัตถุประสงค์
+assessment_prompt <- "ให้คะแนนอย่างเป็นธรรมและสม่ำเสมอ ตาม rubric ที่กำหนด"
+
 if (n_students < 10) {
   # นักเรียนน้อย: ใช้ sequential
-  results <- grade_responses(responses, rubric, key, .parallel = FALSE)
+  results <- grade_responses(responses, rubric, key, 
+                           system_prompt = assessment_prompt,
+                           .parallel = FALSE)
   
 } else if (n_students < 100) {
   # นักเรียนปานกลาง: ใช้ parallel แบบจำกัด cores
-  results <- grade_responses(responses, rubric, key, 
+  results <- grade_responses(responses, rubric, key,
+                           system_prompt = assessment_prompt,
                            .parallel = TRUE, .cores = 2)
                            
 } else {
   # นักเรียนมาก: ใช้ parallel เต็มที่
   optimal_cores <- get_optimal_cores(n_students, max_cores = 8)
   results <- grade_responses(responses, rubric, key,
+                           system_prompt = assessment_prompt,
                            .parallel = TRUE, .cores = optimal_cores)
 }
 ```
@@ -325,13 +422,29 @@ if (n_students < 10) {
 ### การจัดการ Memory และ Error
 ```r
 # สำหรับข้อมูลขนาดใหญ่
+custom_prompt <- "ให้คะแนนอย่างรอบคอบและเป็นธรรม"
+
 results <- tryCatch({
-  grade_responses(responses, rubric, key, .parallel = TRUE, .cores = 4)
+  grade_responses(responses, rubric, key, 
+                system_prompt = custom_prompt,
+                .parallel = TRUE, .cores = 4)
 }, error = function(e) {
   cat("เกิดข้อผิดพลาด ลอง sequential processing\n")
-  grade_responses(responses, rubric, key, .parallel = FALSE)
+  grade_responses(responses, rubric, key,
+                system_prompt = custom_prompt,
+                .parallel = FALSE)
 })
 ```
+
+### การเลือก System Prompt ตามวัตถุประสงค์
+
+| วัตถุประสงค์ | System Prompt ที่แนะนำ |
+|-------------|----------------------|
+| **การสอบกลางภาค/ปลายภาค** | "ให้คะแนนอย่างเข้มงวดตาม rubric เน้นความถูกต้องและครบถ้วน" |
+| **การประเมินระหว่างเรียน** | "ให้คะแนนที่เน้นการพัฒนา ให้ feedback สร้างสรรค์" |
+| **การประเมินโครงงาน** | "ประเมินความคิดสร้างสรรค์และกระบวนการคิด" |
+| **การฝึกหัด** | "ให้คะแนนที่เน้นการเรียนรู้ ชี้จุดดีและจุดที่ต้องปรับปรุง" |
+| **การประเมินสำหรับ ESL** | "Use simple English, focus on content over language perfection" |
 
 ## 🧪 การทดสอบและพัฒนา
 
@@ -347,7 +460,9 @@ devtools::document()
 
 # ทดสอบกับข้อมูลตัวอย่าง
 responses_sample <- responses[1:5, ]  # เลือกแค่ 5 คน
-results_test <- grade_responses(responses_sample, rubric, key)
+test_prompt <- "ทดสอบการให้คะแนน ให้ feedback ที่ละเอียด"
+results_test <- grade_responses(responses_sample, rubric, key, 
+                              system_prompt = test_prompt)
 ```
 
 ## 📁 โครงสร้างโปรเจกต์

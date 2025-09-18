@@ -10,6 +10,7 @@ grade_responses(
   key = NULL,
   template_path = NULL,
   model_config = NULL,
+  system_prompt = NULL,
   .progress = TRUE,
   .parallel = FALSE,
   .cores = NULL
@@ -25,6 +26,8 @@ grade_responses(
 \item{template_path}{Path to grading template file}
 
 \item{model_config}{List with model configuration (model name, etc.)}
+
+\item{system_prompt}{Custom system prompt for LLM (optional)}
 
 \item{.progress}{Show progress bar with percentage (default: TRUE)}
 
@@ -42,11 +45,32 @@ Grade multiple student responses using LLM and rubric with optional parallel pro
 \dontrun{
 responses <- read_csv("data/responses.csv")
 rubric <- load_rubric("rubric/item_001.md")
+key <- load_answer_key("rubric/item_001_key.md")
 
-# Sequential processing
-results <- grade_responses(responses, rubric)
+# Sequential processing (default)
+results <- grade_responses(responses, rubric, key)
 
 # Parallel processing with 4 cores
-results <- grade_responses(responses, rubric, .parallel = TRUE, .cores = 4)
+results <- grade_responses(responses, rubric, key, .parallel = TRUE, .cores = 4)
+
+# Custom system prompt - strict grading
+strict_prompt <- "ให้คะแนนอย่างเข้มงวดตาม rubric ไม่ให้คะแนนเต็มง่ายๆ"
+results <- grade_responses(responses, rubric, key, system_prompt = strict_prompt)
+
+# Custom system prompt - encouraging feedback
+encouraging_prompt <- "ให้คะแนนที่เป็นธรรมและ feedback ที่สร้างสรรค์"
+results <- grade_responses(responses, rubric, key, system_prompt = encouraging_prompt)
+
+# Complete example with all options
+results <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = key,
+  system_prompt = "ประเมินอย่างรอบด้านและให้คำแนะนำที่เป็นประโยชน์",
+  model_config = "gpt-5-nano",
+  .parallel = TRUE,
+  .cores = 4,
+  .progress = TRUE
+)
 }
 }

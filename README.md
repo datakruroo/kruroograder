@@ -59,7 +59,7 @@ install.packages(c("devtools", "tidyllm", "yaml", "tibble", "dplyr",
 devtools::install(".")
 
 # หรือติดตั้งจาก GitHub (เมื่อพร้อม)
-# devtools::install_github("username/kruroograder")
+# devtools::install_github("datakruroo/kruroograder")
 ```
 
 ### ตั้งค่า API

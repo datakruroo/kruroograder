@@ -1,5 +1,5 @@
 
-![S__75743284_0](https://github.com/user-attachments/assets/ae42802c-af42-46f5-ba63-2ea973903d13)
+![S__75743284_0](https://github.com/user-attachments/assets/ae42802c-af42-46f5-ba63-2ea973903d13){width="30%"}
 
 # kruroograder 🤖📝
 

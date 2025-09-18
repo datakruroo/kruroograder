@@ -1,8 +1,3 @@
-
-![S__75743284_0 copy](https://github.com/user-attachments/assets/356d3ab2-08ab-4f8e-b8c0-9bd43576f7d9) <img width="300" height="134" alt="KruRoo_logo copy" src="https://github.com/user-attachments/assets/0673db68-5773-46b3-be75-fedeb827fbdb" />
-
-
-
 # kruroograder 🤖📝
 
 ระบบตรวจข้อสอบอัตนัยอัตโนมัติที่ใช้ LLM (Large Language Model) สำหรับประเมินคำตอบของนักเรียนอย่างเป็นระบบและโปร่งใส
@@ -46,6 +41,7 @@
 
 ### ความต้องการของระบบ
 - **R**: เวอร์ชั่น 4.0 ขึ้นไป
+- **Python**: สำหรับ tidyllm (จะติดตั้งอัตโนมัติ)
 - **API Key**: OpenAI หรือ provider อื่นๆ ที่ tidyllm รองรับ
 
 ### วิธีการติดตั้ง
@@ -59,7 +55,7 @@ install.packages(c("devtools", "tidyllm", "yaml", "tibble", "dplyr",
 devtools::install(".")
 
 # หรือติดตั้งจาก GitHub (เมื่อพร้อม)
-# devtools::install_github("datakruroo/kruroograder")
+# devtools::install_github("username/kruroograder")
 ```
 
 ### ตั้งค่า API
@@ -70,7 +66,6 @@ Sys.setenv(OPENAI_API_KEY = "your-api-key-here")
 # หรือใส่ใน .Renviron
 # OPENAI_API_KEY=your-api-key-here
 ```
-หากยังไม่มี OPENAI API ให้เข้าไปที่ [https://openai.com/](https://openai.com/)
 
 ## 🚀 การใช้งานอย่างละเอียด
 

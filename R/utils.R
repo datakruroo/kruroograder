@@ -56,7 +56,7 @@ validate_response_data <- function(responses) {
 #' @return Recommended number of cores
 #' @export
 get_optimal_cores <- function(n_tasks, max_cores = NULL) {
-  available_cores <- parallel::detectCores()
+  available_cores <- future::availableCores()
   
   if (is.null(max_cores)) {
     # Use at most available cores - 1, but never more than n_tasks
@@ -83,7 +83,7 @@ get_optimal_cores <- function(n_tasks, max_cores = NULL) {
 #' @return TRUE if parallel processing is recommended
 #' @export
 should_use_parallel <- function(n_tasks, min_tasks_for_parallel = 4) {
-  return(n_tasks >= min_tasks_for_parallel && parallel::detectCores() > 1)
+  return(n_tasks >= min_tasks_for_parallel && future::availableCores() > 1)
 }
 
 #' View Grading Results Details
@@ -177,4 +177,39 @@ extract_criteria_scores <- function(results) {
   }
   
   do.call(rbind, expanded_rows)
+}
+
+#' Debug Per-Criterion Structure
+#'
+#' Analyze the structure of per_criterion data for debugging
+#'
+#' @param results Grading results from grade_responses()
+#' @export
+debug_per_criterion <- function(results) {
+  if (!is.data.frame(results)) {
+    stop("Results must be a data frame")
+  }
+  
+  cat("=== PER-CRITERION STRUCTURE ANALYSIS ===\n\n")
+  
+  for (i in seq_len(nrow(results))) {
+    cat("Student", i, "(", results$student_id[i], "):\n")
+    cat("  Type:", class(results$per_criterion[[i]])[1], "\n")
+    cat("  Length:", length(results$per_criterion[[i]]), "\n")
+    
+    if (is.data.frame(results$per_criterion[[i]])) {
+      cat("  Columns:", paste(names(results$per_criterion[[i]]), collapse = ", "), "\n")
+      cat("  Rows:", nrow(results$per_criterion[[i]]), "\n")
+    } else if (is.list(results$per_criterion[[i]])) {
+      cat("  List elements:", length(results$per_criterion[[i]]), "\n")
+      if (length(results$per_criterion[[i]]) > 0) {
+        first_elem <- results$per_criterion[[i]][[1]]
+        cat("  First element type:", class(first_elem)[1], "\n")
+        if (is.list(first_elem)) {
+          cat("  First element fields:", paste(names(first_elem), collapse = ", "), "\n")
+        }
+      }
+    }
+    cat("\n")
+  }
 }

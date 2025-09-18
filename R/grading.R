@@ -35,14 +35,56 @@ grade_responses <- function(responses, rubric, key = NULL,
     model_config <- list(model = "gpt-5-nano", provider = "openai")
   }
   if (is.null(.cores)) {
-    .cores <- max(1, parallel::detectCores() - 1)
+    .cores <- max(1, future::availableCores() - 1)
   }
   
   # Create grading schema
   schema <- create_grading_schema()
   
   # Define the grading function for a single response
-  grade_single_response <- function(i, responses, template_path, rubric, key, model_config, schema) {
+  grade_single_response <- function(i, p = NULL) {
+    # Progress update
+    if (.progress && !is.null(p)) p()
+    
+    # Define normalize function inline to avoid export issues
+    normalize_per_criterion_local <- function(per_criterion) {
+      if (is.null(per_criterion) || length(per_criterion) == 0) {
+        return(list())
+      }
+      
+      # If it's already a data.frame, convert to list
+      if (is.data.frame(per_criterion)) {
+        result <- vector("list", nrow(per_criterion))
+        for (idx in seq_len(nrow(per_criterion))) {
+          result[[idx]] <- list(
+            id = as.character(per_criterion$id[idx] %||% paste0("C", idx)),
+            score = as.numeric(per_criterion$score[idx] %||% 0),
+            justification = as.character(per_criterion$justification[idx] %||% "")
+          )
+        }
+        return(result)
+      }
+      
+      # If it's a list, ensure each element has consistent structure
+      if (is.list(per_criterion)) {
+        if (all(sapply(per_criterion, is.list))) {
+          result <- vector("list", length(per_criterion))
+          for (idx in seq_along(per_criterion)) {
+            criterion <- per_criterion[[idx]]
+            result[[idx]] <- list(
+              id = as.character(criterion$id %||% paste0("C", idx)),
+              score = as.numeric(criterion$score %||% 0),
+              justification = as.character(criterion$justification %||% "")
+            )
+          }
+          return(result)
+        }
+      }
+      
+      # Fallback
+      return(list())
+    }
+    
     tryCatch({
       response_row <- responses[i, ]
       
@@ -53,7 +95,7 @@ grade_responses <- function(responses, rubric, key = NULL,
       messages <- tibble::tibble(
         role = c("system", "user"),
         content = c(
-          "คุณเป็นอาจารย์ผู้เชี่ยวชาญด้าน data-driven classroom มีหน้าที่ประเมินผลการตอบของนักเรียนอย่างตามเกณฑ์ที่กำหนดอย่างตรงไปตรงมาและเป็นธรรม คงเส้นคงวาในการให้คะแนน",
+          "คุณเป็นอาจารย์ผู้เชี่ยวชาญด้าน data-driven classroom มีหน้าที่ประเมินผลการตอบของนักเรียนอย่างตามเกณฑ์ที่กำหนดอย่างตรงไปตรงมาและเป็นธรรม คงเส้นคงวาในการให้คะแนน ใช้หลักการประเมินแบบเดียวกันสำหรับทุกคำตอบ",
           prompt
         )
       ) %>%
@@ -67,119 +109,120 @@ grade_responses <- function(responses, rubric, key = NULL,
         .json_schema = schema
       )
       
-      # Extract results
+      # Extract and format results
       graded_result <- tidyllm::get_reply_data(result)
+      per_criterion_normalized <- normalize_per_criterion_local(graded_result$per_criterion %||% list())
       
-      # Ensure consistent structure - convert to list format
-      formatted_result <- list(
-        student_id = as.character(graded_result$student_id %||% response_row$student_id %||% "unknown"),
+      list(
+        student_id = as.character(response_row$student_id %||% "unknown"),  # Use input data, not LLM response
         item_id = as.character(graded_result$item_id %||% response_row$item_id %||% "unknown"),
         total_score = as.numeric(graded_result$total_score %||% 0),
-        per_criterion = graded_result$per_criterion %||% list(),
+        per_criterion = per_criterion_normalized,
         overall_feedback = as.character(graded_result$overall_feedback %||% "")
       )
       
-      return(formatted_result)
-      
     }, error = function(e) {
       logger::log_error("Error grading response {i}: {e$message}")
-      # Return error result in consistent format
-      return(list(
-        student_id = as.character(responses[i, ]$student_id %||% "unknown"),
-        item_id = as.character(responses[i, ]$item_id %||% "unknown"),
+      list(
+        student_id = as.character(response_row$student_id %||% "unknown"),  # Use input data consistently
+        item_id = as.character(response_row$item_id %||% "unknown"),
         total_score = 0,
         per_criterion = list(),
         overall_feedback = paste("Error during grading:", e$message)
-      ))
+      )
     })
   }
   
-  # Progress tracking function
-  show_progress <- function(i, n) {
-    if (.progress) {
-      pct <- round(100 * i / n, 1)
-      cat(sprintf("\rProgress: %d/%d (%s%%) completed", i, n, pct))
-      if (i == n) cat("\n")
-      flush.console()
-    }
-  }
-  
-  # Grade responses
+  # Setup future plan
   n_responses <- nrow(responses)
   indices <- seq_len(n_responses)
   
   logger::log_info("Starting grading of {n_responses} responses")
   logger::log_info("Parallel processing: {.parallel}, Cores: {.cores}")
   
+  # Configure future plan
   if (.parallel && n_responses > 1) {
-    # Parallel processing
-    if (.progress) {
-      cat(sprintf("Starting parallel grading with %d cores...\n", .cores))
-    }
-    
-    # Use pbapply for progress tracking with parallel processing
-    if (.progress) {
-      results <- pbapply::pblapply(
-        indices, 
-        grade_single_response,
-        responses = responses,
-        template_path = template_path,
-        rubric = rubric,
-        key = key,
-        model_config = model_config,
-        schema = schema,
-        cl = .cores
-      )
-    } else {
-      # Use parallel without progress bar
-      cl <- parallel::makeCluster(.cores)
-      on.exit(parallel::stopCluster(cl))
-      
-      # Export necessary objects to cluster
-      parallel::clusterEvalQ(cl, {
-        library(tibble)
-        library(tidyllm)
-        library(logger)
-        library(glue)
-        library(yaml)
-      })
-      parallel::clusterExport(cl, c("render_prompt", "read_file_all"), envir = environment())
-      
-      results <- parallel::parLapply(
-        cl,
-        indices,
-        grade_single_response,
-        responses = responses,
-        template_path = template_path,
-        rubric = rubric,
-        key = key,
-        model_config = model_config,
-        schema = schema
-      )
-    }
-    
+    future::plan(future::multisession, workers = .cores)
+    logger::log_info("Using multisession with {.cores} workers")
   } else {
-    # Sequential processing with enhanced progress
-    results <- vector("list", n_responses)
-    
-    if (.progress) {
-      cat("Starting sequential grading...\n")
-    }
-    
-    for (i in indices) {
-      results[[i]] <- grade_single_response(
-        i, responses, template_path, rubric, key, model_config, schema
-      )
-      show_progress(i, n_responses)
-    }
+    future::plan(future::sequential)
+    logger::log_info("Using sequential processing")
+  }
+  
+  # Ensure plan is reset on exit
+  on.exit(future::plan(future::sequential), add = TRUE)
+  
+  # Grade responses with progress tracking
+  if (.progress) {
+    results <- progressr::with_progress({
+      p <- progressr::progressor(steps = n_responses)
+      furrr::future_map(indices, ~grade_single_response(.x, p), .options = furrr::furrr_options(seed = TRUE))
+    })
+  } else {
+    results <- furrr::future_map(indices, ~grade_single_response(.x), .options = furrr::furrr_options(seed = TRUE))
   }
   
   logger::log_info("Grading completed")
   
   # Combine results into a proper tibble
-  combined_results <- combine_grading_results(results)
+  combine_grading_results(results)
+}
+
+#' Normalize Per-Criterion Data Structure
+#'
+#' Convert per_criterion data to consistent list format regardless of input type
+#'
+#' @param per_criterion Per-criterion data from LLM response
+#' @return Normalized list of criteria
+#' @keywords internal
+normalize_per_criterion <- function(per_criterion) {
   
-  return(combined_results)
+  if (is.null(per_criterion) || length(per_criterion) == 0) {
+    return(list())
+  }
+  
+  # If it's already a data.frame, convert to list
+  if (is.data.frame(per_criterion)) {
+    # Convert data.frame rows to list of lists
+    result <- vector("list", nrow(per_criterion))
+    for (i in seq_len(nrow(per_criterion))) {
+      result[[i]] <- list(
+        id = as.character(per_criterion$id[i] %||% paste0("C", i)),
+        score = as.numeric(per_criterion$score[i] %||% 0),
+        justification = as.character(per_criterion$justification[i] %||% "")
+      )
+    }
+    return(result)
+  }
+  
+  # If it's a list, ensure each element has consistent structure
+  if (is.list(per_criterion)) {
+    # Check if it's a list of lists (what we want)
+    if (all(sapply(per_criterion, is.list))) {
+      # Normalize each criterion
+      result <- vector("list", length(per_criterion))
+      for (i in seq_along(per_criterion)) {
+        criterion <- per_criterion[[i]]
+        result[[i]] <- list(
+          id = as.character(criterion$id %||% paste0("C", i)),
+          score = as.numeric(criterion$score %||% 0),
+          justification = as.character(criterion$justification %||% "")
+        )
+      }
+      return(result)
+    } else {
+      # It might be a flat list, try to restructure
+      # This is a fallback for unexpected formats
+      return(list(list(
+        id = "unknown",
+        score = 0,
+        justification = "Unable to parse criterion data"
+      )))
+    }
+  }
+  
+  # Fallback for any other type
+  return(list())
 }
 
 #' Combine Grading Results
@@ -210,19 +253,20 @@ combine_grading_results <- function(results) {
       total_scores[i] <- as.numeric(result$total_score[1] %||% 0)
       overall_feedbacks[i] <- as.character(result$overall_feedback[1] %||% "")
       
-      # Handle per_criterion
+      # Handle per_criterion with normalization
       if ("per_criterion" %in% names(result)) {
-        per_criteria[[i]] <- result$per_criterion[[1]]
+        per_criteria[[i]] <- normalize_per_criterion(result$per_criterion[[1]])
       } else {
         per_criteria[[i]] <- list()
       }
       
     } else if (is.list(result)) {
+      # student_id now comes from input data, not LLM
       student_ids[i] <- as.character(result$student_id %||% "unknown")
       item_ids[i] <- as.character(result$item_id %||% "unknown")  
       total_scores[i] <- as.numeric(result$total_score %||% 0)
       overall_feedbacks[i] <- as.character(result$overall_feedback %||% "")
-      per_criteria[[i]] <- result$per_criterion %||% list()
+      per_criteria[[i]] <- normalize_per_criterion(result$per_criterion %||% list())
       
     } else {
       # Handle error cases
@@ -253,7 +297,6 @@ combine_grading_results <- function(results) {
 create_grading_schema <- function() {
   tidyllm::tidyllm_schema(
     name = "grading_schema",
-    student_id = tidyllm::field_chr("student_id"),
     item_id = tidyllm::field_chr("item_id"),
     total_score = tidyllm::field_dbl("total_score"),
     per_criterion = tidyllm::field_object(

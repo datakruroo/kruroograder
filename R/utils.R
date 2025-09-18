@@ -85,3 +85,96 @@ get_optimal_cores <- function(n_tasks, max_cores = NULL) {
 should_use_parallel <- function(n_tasks, min_tasks_for_parallel = 4) {
   return(n_tasks >= min_tasks_for_parallel && parallel::detectCores() > 1)
 }
+
+#' View Grading Results Details
+#'
+#' Show detailed results for a specific student
+#'
+#' @param results Grading results from grade_responses()
+#' @param student_index Row number of student (default: 1)
+#' @return List with detailed grading information
+#' @export
+view_student_results <- function(results, student_index = 1) {
+  if (!is.data.frame(results) || nrow(results) < student_index) {
+    stop("Invalid results or student index")
+  }
+  
+  student_row <- results[student_index, ]
+  
+  cat("=== STUDENT GRADING DETAILS ===\n")
+  cat("Student ID:", student_row$student_id, "\n")
+  cat("Item ID:", student_row$item_id, "\n") 
+  cat("Total Score:", student_row$total_score, "\n")
+  cat("\n--- PER CRITERION SCORES ---\n")
+  
+  criteria <- student_row$per_criterion[[1]]
+  if (is.list(criteria) && length(criteria) > 0) {
+    for (i in seq_along(criteria)) {
+      criterion <- criteria[[i]]
+      if (is.list(criterion)) {
+        cat("Criterion", criterion$id %||% i, ":\n")
+        cat("  Score:", criterion$score %||% "N/A", "\n")
+        cat("  Justification:", criterion$justification %||% "N/A", "\n\n")
+      }
+    }
+  } else {
+    cat("No detailed criteria available\n")
+  }
+  
+  cat("--- OVERALL FEEDBACK ---\n")
+  cat(student_row$overall_feedback, "\n")
+  
+  invisible(student_row)
+}
+
+#' Extract Criteria Scores
+#'
+#' Extract per-criterion scores into a more accessible format
+#'
+#' @param results Grading results from grade_responses()
+#' @return Tibble with expanded criteria scores
+#' @export
+extract_criteria_scores <- function(results) {
+  if (!is.data.frame(results)) {
+    stop("Results must be a data frame")
+  }
+  
+  expanded_rows <- vector("list", nrow(results))
+  
+  for (i in seq_len(nrow(results))) {
+    student_id <- results$student_id[i]
+    item_id <- results$item_id[i]
+    total_score <- results$total_score[i]
+    criteria <- results$per_criterion[[i]]
+    
+    if (is.list(criteria) && length(criteria) > 0) {
+      criterion_rows <- vector("list", length(criteria))
+      
+      for (j in seq_along(criteria)) {
+        criterion <- criteria[[j]]
+        criterion_rows[[j]] <- tibble::tibble(
+          student_id = student_id,
+          item_id = item_id,
+          total_score = total_score,
+          criterion_id = criterion$id %||% paste0("C", j),
+          criterion_score = criterion$score %||% 0,
+          justification = criterion$justification %||% ""
+        )
+      }
+      
+      expanded_rows[[i]] <- do.call(rbind, criterion_rows)
+    } else {
+      # No criteria available
+      expanded_rows[[i]] <- tibble::tibble(
+        student_id = student_id,
+        item_id = item_id, 
+        total_score = total_score,
+        criterion_id = "unknown",
+        criterion_score = 0,
+        justification = "No criteria data available"
+      )
+    }
+  }
+  
+  do.call(rbind, expanded_rows)
+}

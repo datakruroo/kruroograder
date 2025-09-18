@@ -70,21 +70,26 @@ grade_responses <- function(responses, rubric, key = NULL,
       # Extract results
       graded_result <- tidyllm::get_reply_data(result)
       
-      # Add row index for debugging
-      graded_result$row_index <- i
+      # Ensure consistent structure - convert to list format
+      formatted_result <- list(
+        student_id = as.character(graded_result$student_id %||% response_row$student_id %||% "unknown"),
+        item_id = as.character(graded_result$item_id %||% response_row$item_id %||% "unknown"),
+        total_score = as.numeric(graded_result$total_score %||% 0),
+        per_criterion = graded_result$per_criterion %||% list(),
+        overall_feedback = as.character(graded_result$overall_feedback %||% "")
+      )
       
-      return(graded_result)
+      return(formatted_result)
       
     }, error = function(e) {
       logger::log_error("Error grading response {i}: {e$message}")
-      # Return error result
-      return(tibble::tibble(
-        row_index = i,
-        student_id = responses[i, ]$student_id %||% NA_character_,
-        item_id = responses[i, ]$item_id %||% NA_character_,
-        total_score = NA_real_,
-        overall_feedback = paste("Error during grading:", e$message),
-        error = TRUE
+      # Return error result in consistent format
+      return(list(
+        student_id = as.character(responses[i, ]$student_id %||% "unknown"),
+        item_id = as.character(responses[i, ]$item_id %||% "unknown"),
+        total_score = 0,
+        per_criterion = list(),
+        overall_feedback = paste("Error during grading:", e$message)
       ))
     })
   }
@@ -171,15 +176,72 @@ grade_responses <- function(responses, rubric, key = NULL,
   
   logger::log_info("Grading completed")
   
-  # Combine results
-  combined_results <- do.call(rbind, results)
-  
-  # Remove row_index column if it exists
-  if ("row_index" %in% names(combined_results)) {
-    combined_results$row_index <- NULL
-  }
+  # Combine results into a proper tibble
+  combined_results <- combine_grading_results(results)
   
   return(combined_results)
+}
+
+#' Combine Grading Results
+#'
+#' Properly combine list of grading results into a tibble
+#'
+#' @param results List of grading results from individual responses
+#' @return Tibble with properly structured results
+#' @keywords internal
+combine_grading_results <- function(results) {
+  
+  # Initialize vectors for each column
+  n_results <- length(results)
+  student_ids <- character(n_results)
+  item_ids <- character(n_results)
+  total_scores <- numeric(n_results)
+  overall_feedbacks <- character(n_results)
+  per_criteria <- vector("list", n_results)
+  
+  # Extract data from each result
+  for (i in seq_along(results)) {
+    result <- results[[i]]
+    
+    # Handle different result structures
+    if (is.data.frame(result)) {
+      student_ids[i] <- as.character(result$student_id[1] %||% "unknown")
+      item_ids[i] <- as.character(result$item_id[1] %||% "unknown")
+      total_scores[i] <- as.numeric(result$total_score[1] %||% 0)
+      overall_feedbacks[i] <- as.character(result$overall_feedback[1] %||% "")
+      
+      # Handle per_criterion
+      if ("per_criterion" %in% names(result)) {
+        per_criteria[[i]] <- result$per_criterion[[1]]
+      } else {
+        per_criteria[[i]] <- list()
+      }
+      
+    } else if (is.list(result)) {
+      student_ids[i] <- as.character(result$student_id %||% "unknown")
+      item_ids[i] <- as.character(result$item_id %||% "unknown")  
+      total_scores[i] <- as.numeric(result$total_score %||% 0)
+      overall_feedbacks[i] <- as.character(result$overall_feedback %||% "")
+      per_criteria[[i]] <- result$per_criterion %||% list()
+      
+    } else {
+      # Handle error cases
+      student_ids[i] <- "error"
+      item_ids[i] <- "error"
+      total_scores[i] <- 0
+      overall_feedbacks[i] <- "Error in processing"
+      per_criteria[[i]] <- list()
+    }
+  }
+  
+  # Create tibble
+  tibble::tibble(
+    student_id = student_ids,
+    item_id = item_ids,
+    total_score = total_scores,
+    per_criterion = per_criteria,
+    overall_feedback = overall_feedbacks
+  )
 }
 
 #' Create Grading Schema

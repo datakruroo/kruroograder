@@ -1,5 +1,6 @@
 
-![S__75743284_0 copy](https://github.com/user-attachments/assets/745ac9e3-b91b-4170-8d0f-dc2c6cfece0e)
+![S__75743284_0 copy](https://github.com/user-attachments/assets/356d3ab2-08ab-4f8e-b8c0-9bd43576f7d9)
+
 
 # kruroograder 🤖📝
 

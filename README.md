@@ -1,5 +1,6 @@
 
-![S__75743284_0 copy](https://github.com/user-attachments/assets/356d3ab2-08ab-4f8e-b8c0-9bd43576f7d9)
+![S__75743284_0 copy](https://github.com/user-attachments/assets/356d3ab2-08ab-4f8e-b8c0-9bd43576f7d9) <img width="300" height="134" alt="KruRoo_logo copy" src="https://github.com/user-attachments/assets/0673db68-5773-46b3-be75-fedeb827fbdb" />
+
 
 
 # kruroograder 🤖📝

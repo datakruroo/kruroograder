@@ -11,6 +11,8 @@ grade_responses(
   template_path = NULL,
   model_config = NULL,
   system_prompt = NULL,
+  .temperature = NULL,
+  .top_p = NULL,
   .progress = TRUE,
   .parallel = FALSE,
   .cores = NULL

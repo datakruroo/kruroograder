@@ -48,6 +48,8 @@
 grade_responses <- function(responses, rubric, key = NULL, 
                            template_path = NULL, model_config = NULL, 
                            system_prompt = NULL,
+                           .temperature = NULL,
+                           .top_p = NULL,
                            .progress = TRUE, .parallel = FALSE, .cores = NULL) {
   
   # Set defaults
@@ -143,7 +145,9 @@ grade_responses <- function(responses, rubric, key = NULL,
         messages, 
         tidyllm::openai(),
         .model = as.character(model_config$model %||% "gpt-5-nano"),
-        .json_schema = schema
+        .json_schema = schema,
+        .temperature = NULL,
+        .top_p = NULL
       )
       
       # Extract and format results

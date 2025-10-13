@@ -421,3 +421,682 @@ inspect_pdf_structure <- function(input_pdf, n_questions = 4) {
   
   return(invisible(list(n_pages = n_pages, n_students = n_students, remainder = remainder)))
 }
+
+#' OCR Handwriting from Image using OpenAI Vision API
+#'
+#' @title แปลงลายมือจากภาพเป็นข้อความ
+#' @param image_path เส้นทางไฟล์ภาพ
+#' @param api_key OpenAI API key (ถ้าไม่ระบุจะใช้จาก environment)
+#' @param system_prompt system prompt สำหรับการ OCR
+#' @param model_config ชื่อโมเดลที่ใช้ (default: "gpt-4o-mini")
+#' @param max_tokens จำนวน token สูงสุด (default: 500)
+#' @return tibble ที่มี answer, prompt_tokens, completion_tokens, tokens_used
+#' @export
+ocr_handwriting <- function(image_path, 
+                            api_key = NULL, 
+                            system_prompt = NULL, 
+                            model_config = NULL,
+                            max_tokens = 500) {
+  
+  library(httr2)
+  library(jsonlite)
+  
+  
+  # ตรวจสอบไฟล์มีอยู่จริง
+  if (!file.exists(image_path)) {
+    stop("ไม่พบไฟล์ภาพ: ", image_path)
+  }
+  
+  # ตั้งค่า API key
+  if (is.null(api_key)) {
+    api_key <- Sys.getenv("OPENAI_API_KEY")
+    if (api_key == "" || is.null(api_key)) {
+      stop("กรุณาตั้งค่า OPENAI_API_KEY ใน environment variables")
+    }
+  }
+  
+  
+  # ตั้งค่า system prompt - แก้ไขจาก ifelse เป็น if
+  if (is.null(system_prompt)) {
+    system_prompt <- "คุณกำลังช่วยสกัดคำตอบจากแบบเขียนของนักเรียนที่ถูกแปลงเป็นข้อความจาก OCR
+ในเนื้อหานี้จะมีคำตอบของนักเรียนที่เขียนด้วยลายมืออยู่ในกรอบสี่เหลี่ยม กรุณา
+สกัดคำตอบทั้งหมดที่อยู่ภายในกรอบ โดยพยายามคงความหมายดั้งเดิมให้มากที่สุด และสกัดคำให้อยู่ในบริบทเดียวกัน
+สอดคล้องกัน ออกมาให้ครบถ้วน **ไม่เอาบรรทัดที่เขียนว่า พื้นที่สำหรับตอบคำถาม ...**"
+  }
+  
+  # ตั้งค่า model config
+  if (is.null(model_config)) {
+    model_config <- "gpt-4.1-mini"  
+  }
+  
+  # ตรวจสอบนามสกุลไฟล์
+  file_ext <- tools::file_ext(tolower(image_path))
+  if (!file_ext %in% c("png", "jpg", "jpeg", "gif", "webp")) {
+    warning("ไฟล์อาจไม่ใช่รูปภาพที่รองรับ: ", file_ext)
+  }
+  
+  # อ่านไฟล์ภาพและแปลงเป็น base64
+  tryCatch({
+    img <- base64enc::base64encode(image_path)
+  }, error = function(e) {
+    stop("ไม่สามารถอ่านไฟล์ภาพได้: ", e$message)
+  })
+  
+  # เตรียม MIME type
+  mime_type <- switch(file_ext,
+                      "png" = "image/png",
+                      "jpg" = "image/jpeg", 
+                      "jpeg" = "image/jpeg",
+                      "gif" = "image/gif",
+                      "webp" = "image/webp",
+                      "image/png"  # default
+  )
+  
+  # ส่งคำขอไปยัง OpenAI API
+  tryCatch({
+    resp <- request("https://api.openai.com/v1/chat/completions") |>
+      req_headers(
+        "Authorization" = paste("Bearer", api_key),
+        "Content-Type" = "application/json"
+      ) |>
+      req_body_json(list(
+        model = model_config,
+        max_tokens = max_tokens,
+        presence_penalty = 0,
+        frequency_penalty = 0,
+        temperature = 0.2,
+        messages = list(
+          list(role = "system", content = system_prompt),
+          list(role = "user", content = list(
+            list(type = "text", text = "ถอดข้อความจากภาพนี้ให้เป็นตัวอักษรไทย ไม่เอาส่วนที่เขียนว่า 'พื้นที่สำหรับตอบคำถาม ...' "),
+            list(
+              type = "image_url",
+              image_url = list(url = paste0("data:", mime_type, ";base64,", img))
+            )
+          ))
+        )
+      )) |>
+      req_perform()
+    
+  }, error = function(e) {
+    stop("การเรียก API ล้มเหลว: ", e$message)
+  })
+  
+  
+  # ตรวจสอบ response status
+  if (resp_status(resp) != 200) {
+    stop("API response error: ", resp_status(resp), " - ", resp_status_desc(resp))
+  }
+  
+  # แปลงผลลัพธ์เป็น JSON
+  tryCatch({
+    res_json <- resp_body_json(resp)
+  }, error = function(e) {
+    stop("ไม่สามารถแปลง response เป็น JSON ได้: ", e$message)
+  })
+  
+  # ตรวจสอบ response structure
+  if (is.null(res_json$choices) || length(res_json$choices) == 0) {
+    stop("ไม่ได้รับคำตอบจาก API")
+  }
+  
+  # เพิ่ม null coalescing operator ถ้าไม่มี
+  `%||%` <- function(x, y) {
+    if (is.null(x) || length(x) == 0 || (is.character(x) && x == "")) y else x
+  }
+  
+  # แสดงผลลัพธ์
+  output <- tibble::tibble(
+    image_file = basename(image_path),
+    answer = res_json$choices[[1]]$message$content %||% "",
+    prompt_tokens = res_json$usage$prompt_tokens %||% 0,
+    completion_tokens = res_json$usage$completion_tokens %||% 0,
+    tokens_used = res_json$usage$total_tokens %||% 0,
+    model_used = model_config,
+    processed_at = Sys.time()
+  )
+  
+  return(output)
+}
+
+
+
+
+
+### ---
+
+#' Batch OCR Processing with Configurable System Prompt
+#'
+#' @title ประมวลผล OCR หลายไฟล์พร้อมกัน
+#' @param image_paths vector ของ path ไฟล์รูป  
+#' @param batch_size จำนวนไฟล์ต่อ batch (default: 10)
+#' @param system_prompt system prompt สำหรับการ OCR (default: NULL ใช้ default ของ ocr_handwriting)
+#' @param delay_seconds หน่วงเวลาระหว่างการเรียก API (default: 2)
+#' @param progress แสดง progress (default: TRUE)
+#' @param save_intermediate บันทึกผลลัพธ์ระหว่างทาง (default: FALSE)
+#' @param ... arguments อื่นๆ ส่งต่อไปยัง ocr_handwriting()
+#' @return data frame รวมผลลัพธ์ทั้งหมด
+#' @export
+ocr_batch_handwriting <- function(image_paths,
+                                  batch_size = 10,
+                                  system_prompt = NULL,
+                                  delay_seconds = 2,
+                                  progress = TRUE,
+                                  save_intermediate = FALSE,
+                                  ...) {
+  
+  library(purrr)
+  library(dplyr)
+  library(readr)
+  
+  # ตรวจสอบไฟล์ที่มีอยู่จริง
+  existing_files <- image_paths[file.exists(image_paths)]
+  missing_files <- image_paths[!file.exists(image_paths)]
+  
+  if (length(missing_files) > 0) {
+    warning("ไฟล์ที่ไม่พบ: ", paste(basename(missing_files), collapse = ", "))
+  }
+  
+  if (length(existing_files) == 0) {
+    stop("ไม่มีไฟล์ที่สามารถประมวลผลได้")
+  }
+  
+  # แบ่งเป็น batches
+  n_batches <- ceiling(length(existing_files) / batch_size)
+  
+  cat("กำลังประมวลผล", length(existing_files), "ไฟล์\n")
+  cat("แบ่งเป็น", n_batches, "batch (", batch_size, "ไฟล์/batch)\n")
+  
+  # แสดง system prompt ที่ใช้
+  if (!is.null(system_prompt)) {
+    cat("ใช้ custom system prompt:", substr(system_prompt, 1, 50), "...\n")
+  } else {
+    cat("ใช้ default system prompt\n")
+  }
+  
+  # สร้าง safe version
+  safe_ocr <- safely(ocr_handwriting, otherwise = NULL)
+  
+  # เตรียม progress bar
+  if (progress) {
+    pb <- txtProgressBar(min = 0, max = length(existing_files), style = 3)
+    processed_count <- 0
+  }
+  
+  all_results <- list()
+  failed_files <- character(0)
+  
+  # ประมวลผลแต่ละ batch
+  for (batch_num in 1:n_batches) {
+    start_idx <- (batch_num - 1) * batch_size + 1
+    end_idx <- min(batch_num * batch_size, length(existing_files))
+    batch_files <- existing_files[start_idx:end_idx]
+    
+    cat("\nBatch", batch_num, "/", n_batches, ":", length(batch_files), "ไฟล์\n")
+    
+    # ประมวลผลไฟล์ใน batch นี้
+    for (i in seq_along(batch_files)) {
+      file_path <- batch_files[i]
+      
+      if (progress) {
+        processed_count <- processed_count + 1
+        setTxtProgressBar(pb, processed_count)
+      }
+      
+      # เรียก OCR พร้อม system_prompt
+      result <- safe_ocr(
+        image_path = file_path, 
+        system_prompt = system_prompt,  # ส่ง system_prompt ไปด้วย
+        ...
+      )
+      
+      if (!is.null(result$result)) {
+        all_results <- append(all_results, list(result$result))
+      } else {
+        failed_files <- c(failed_files, file_path)
+        if (!is.null(result$error)) {
+          warning("Error with file ", basename(file_path), ": ", result$error$message)
+        }
+      }
+      
+      # หน่วงเวลา (ยกเว้นไฟล์สุดท้ายของ batch สุดท้าย)
+      if (!(batch_num == n_batches && i == length(batch_files)) && delay_seconds > 0) {
+        Sys.sleep(delay_seconds)
+      }
+    }
+    
+    # บันทึกผลลัพธ์ระหว่างทาง
+    if (save_intermediate && length(all_results) > 0) {
+      temp_results <- bind_rows(all_results)
+      write_csv(temp_results, paste0("ocr_batch_", batch_num, "_", Sys.Date(), ".csv"))
+      cat("บันทึกผลลัพธ์ batch", batch_num, "แล้ว\n")
+    }
+    
+    cat("Batch", batch_num, "เสร็จแล้ว\n")
+  }
+  
+  if (progress) {
+    close(pb)
+  }
+  
+  # รวมผลลัพธ์
+  if (length(all_results) > 0) {
+    final_results <- bind_rows(all_results)
+    
+    # สรุปผล
+    cat("\n=== สรุปผลการประมวลผล ===\n")
+    cat("ไฟล์ทั้งหมด:", length(existing_files), "\n")
+    cat("ประมวลผลสำเร็จ:", nrow(final_results), "\n")
+    cat("ล้มเหลว:", length(failed_files), "\n")
+    cat("รวม tokens ใช้:", sum(final_results$tokens_used, na.rm = TRUE), "\n")
+    
+    if (length(failed_files) > 0) {
+      cat("ไฟล์ที่ล้มเหลว:\n")
+      cat(paste("-", basename(failed_files), collapse = "\n"), "\n")
+    }
+    
+    return(final_results)
+  } else {
+    stop("ไม่มีไฟล์ที่ประมวลผลสำเร็จ")
+  }
+}
+
+
+
+#' OCR Handwriting from Image using OpenAI Vision API
+#'
+#' @title แปลงลายมือจากภาพเป็นข้อความ
+#' @param image_path เส้นทางไฟล์ภาพ
+#' @param api_key OpenAI API key (ถ้าไม่ระบุจะใช้จาก environment)
+#' @param system_prompt system prompt สำหรับการ OCR
+#' @param model_config ชื่อโมเดลที่ใช้ (default: "gpt-4o-mini")
+#' @param max_tokens จำนวน token สูงสุด (default: 500)
+#' @return tibble ที่มี answer, prompt_tokens, completion_tokens, tokens_used
+#' @export
+ocr_handwriting <- function(image_path, 
+                            api_key = NULL, 
+                            system_prompt = NULL, 
+                            model_config = NULL,
+                            max_tokens = 500) {
+  
+  library(httr2)
+  library(jsonlite)
+  
+  
+  # ตรวจสอบไฟล์มีอยู่จริง
+  if (!file.exists(image_path)) {
+    stop("ไม่พบไฟล์ภาพ: ", image_path)
+  }
+  
+  # ตั้งค่า API key
+  if (is.null(api_key)) {
+    api_key <- Sys.getenv("OPENAI_API_KEY")
+    if (api_key == "" || is.null(api_key)) {
+      stop("กรุณาตั้งค่า OPENAI_API_KEY ใน environment variables")
+    }
+  }
+  
+  
+  # ตั้งค่า system prompt - แก้ไขจาก ifelse เป็น if
+  if (is.null(system_prompt)) {
+    system_prompt <- "คุณกำลังช่วยสกัดคำตอบจากแบบเขียนของนักเรียนที่ถูกแปลงเป็นข้อความจาก OCR
+ในเนื้อหานี้จะมีคำตอบของนักเรียนที่เขียนด้วยลายมืออยู่ในกรอบสี่เหลี่ยม กรุณา
+สกัดคำตอบทั้งหมดที่อยู่ภายในกรอบ โดยพยายามคงความหมายดั้งเดิมให้มากที่สุด และสกัดคำให้อยู่ในบริบทเดียวกัน
+สอดคล้องกัน ออกมาให้ครบถ้วน **ไม่เอาบรรทัดที่เขียนว่า พื้นที่สำหรับตอบคำถาม ...**"
+  }
+  
+  # ตั้งค่า model config
+  if (is.null(model_config)) {
+    model_config <- "gpt-4.1-mini"  
+  }
+  
+  # ตรวจสอบนามสกุลไฟล์
+  file_ext <- tools::file_ext(tolower(image_path))
+  if (!file_ext %in% c("png", "jpg", "jpeg", "gif", "webp")) {
+    warning("ไฟล์อาจไม่ใช่รูปภาพที่รองรับ: ", file_ext)
+  }
+  
+  # อ่านไฟล์ภาพและแปลงเป็น base64
+  tryCatch({
+    img <- base64enc::base64encode(image_path)
+  }, error = function(e) {
+    stop("ไม่สามารถอ่านไฟล์ภาพได้: ", e$message)
+  })
+  
+  # เตรียม MIME type
+  mime_type <- switch(file_ext,
+                      "png" = "image/png",
+                      "jpg" = "image/jpeg", 
+                      "jpeg" = "image/jpeg",
+                      "gif" = "image/gif",
+                      "webp" = "image/webp",
+                      "image/png"  # default
+  )
+  
+  # ส่งคำขอไปยัง OpenAI API
+  tryCatch({
+    resp <- request("https://api.openai.com/v1/chat/completions") |>
+      req_headers(
+        "Authorization" = paste("Bearer", api_key),
+        "Content-Type" = "application/json"
+      ) |>
+      req_body_json(list(
+        model = model_config,
+        max_tokens = max_tokens,
+        presence_penalty = 0,
+        frequency_penalty = 0,
+        temperature = 0.2,
+        messages = list(
+          list(role = "system", content = system_prompt),
+          list(role = "user", content = list(
+            list(type = "text", text = "ถอดข้อความจากภาพนี้ให้เป็นตัวอักษรไทย ไม่เอาส่วนที่เขียนว่า 'พื้นที่สำหรับตอบคำถาม ...' "),
+            list(
+              type = "image_url",
+              image_url = list(url = paste0("data:", mime_type, ";base64,", img))
+            )
+          ))
+        )
+      )) |>
+      req_perform()
+    
+  }, error = function(e) {
+    stop("การเรียก API ล้มเหลว: ", e$message)
+  })
+  
+  
+  # ตรวจสอบ response status
+  if (resp_status(resp) != 200) {
+    stop("API response error: ", resp_status(resp), " - ", resp_status_desc(resp))
+  }
+  
+  # แปลงผลลัพธ์เป็น JSON
+  tryCatch({
+    res_json <- resp_body_json(resp)
+  }, error = function(e) {
+    stop("ไม่สามารถแปลง response เป็น JSON ได้: ", e$message)
+  })
+  
+  # ตรวจสอบ response structure
+  if (is.null(res_json$choices) || length(res_json$choices) == 0) {
+    stop("ไม่ได้รับคำตอบจาก API")
+  }
+  
+  # เพิ่ม null coalescing operator ถ้าไม่มี
+  `%||%` <- function(x, y) {
+    if (is.null(x) || length(x) == 0 || (is.character(x) && x == "")) y else x
+  }
+  
+  # แสดงผลลัพธ์
+  output <- tibble::tibble(
+    image_file = basename(image_path),
+    answer = res_json$choices[[1]]$message$content %||% "",
+    prompt_tokens = res_json$usage$prompt_tokens %||% 0,
+    completion_tokens = res_json$usage$completion_tokens %||% 0,
+    tokens_used = res_json$usage$total_tokens %||% 0,
+    model_used = model_config,
+    processed_at = Sys.time()
+  )
+  
+  return(output)
+}
+
+
+### ---
+
+#' Batch OCR Processing with Configurable System Prompt
+#'
+#' @title ประมวลผล OCR หลายไฟล์พร้อมกัน
+#' @param image_paths vector ของ path ไฟล์รูป  
+#' @param batch_size จำนวนไฟล์ต่อ batch (default: 10)
+#' @param system_prompt system prompt สำหรับการ OCR (default: NULL ใช้ default ของ ocr_handwriting)
+#' @param delay_seconds หน่วงเวลาระหว่างการเรียก API (default: 2)
+#' @param progress แสดง progress (default: TRUE)
+#' @param save_intermediate บันทึกผลลัพธ์ระหว่างทาง (default: FALSE)
+#' @param ... arguments อื่นๆ ส่งต่อไปยัง ocr_handwriting()
+#' @return data frame รวมผลลัพธ์ทั้งหมด
+#' @export
+ocr_batch_handwriting <- function(image_paths,
+                                  batch_size = 10,
+                                  system_prompt = NULL,
+                                  delay_seconds = 2,
+                                  progress = TRUE,
+                                  save_intermediate = FALSE,
+                                  ...) {
+  
+  library(purrr)
+  library(dplyr)
+  library(readr)
+  
+  # ตรวจสอบไฟล์ที่มีอยู่จริง
+  existing_files <- image_paths[file.exists(image_paths)]
+  missing_files <- image_paths[!file.exists(image_paths)]
+  
+  if (length(missing_files) > 0) {
+    warning("ไฟล์ที่ไม่พบ: ", paste(basename(missing_files), collapse = ", "))
+  }
+  
+  if (length(existing_files) == 0) {
+    stop("ไม่มีไฟล์ที่สามารถประมวลผลได้")
+  }
+  
+  # แบ่งเป็น batches
+  n_batches <- ceiling(length(existing_files) / batch_size)
+  
+  cat("กำลังประมวลผล", length(existing_files), "ไฟล์\n")
+  cat("แบ่งเป็น", n_batches, "batch (", batch_size, "ไฟล์/batch)\n")
+  
+  # แสดง system prompt ที่ใช้
+  if (!is.null(system_prompt)) {
+    cat("ใช้ custom system prompt:", substr(system_prompt, 1, 50), "...\n")
+  } else {
+    cat("ใช้ default system prompt\n")
+  }
+  
+  # สร้าง safe version
+  safe_ocr <- safely(ocr_handwriting, otherwise = NULL)
+  
+  # เตรียม progress bar
+  if (progress) {
+    pb <- txtProgressBar(min = 0, max = length(existing_files), style = 3)
+    processed_count <- 0
+  }
+  
+  all_results <- list()
+  failed_files <- character(0)
+  
+  # ประมวลผลแต่ละ batch
+  for (batch_num in 1:n_batches) {
+    start_idx <- (batch_num - 1) * batch_size + 1
+    end_idx <- min(batch_num * batch_size, length(existing_files))
+    batch_files <- existing_files[start_idx:end_idx]
+    
+    cat("\nBatch", batch_num, "/", n_batches, ":", length(batch_files), "ไฟล์\n")
+    
+    # ประมวลผลไฟล์ใน batch นี้
+    for (i in seq_along(batch_files)) {
+      file_path <- batch_files[i]
+      
+      if (progress) {
+        processed_count <- processed_count + 1
+        setTxtProgressBar(pb, processed_count)
+      }
+      
+      # เรียก OCR พร้อม system_prompt
+      result <- safe_ocr(
+        image_path = file_path, 
+        system_prompt = system_prompt,  # ส่ง system_prompt ไปด้วย
+        ...
+      )
+      
+      if (!is.null(result$result)) {
+        all_results <- append(all_results, list(result$result))
+      } else {
+        failed_files <- c(failed_files, file_path)
+        if (!is.null(result$error)) {
+          warning("Error with file ", basename(file_path), ": ", result$error$message)
+        }
+      }
+      
+      # หน่วงเวลา (ยกเว้นไฟล์สุดท้ายของ batch สุดท้าย)
+      if (!(batch_num == n_batches && i == length(batch_files)) && delay_seconds > 0) {
+        Sys.sleep(delay_seconds)
+      }
+    }
+    
+    # บันทึกผลลัพธ์ระหว่างทาง
+    if (save_intermediate && length(all_results) > 0) {
+      temp_results <- bind_rows(all_results)
+      write_csv(temp_results, paste0("ocr_batch_", batch_num, "_", Sys.Date(), ".csv"))
+      cat("บันทึกผลลัพธ์ batch", batch_num, "แล้ว\n")
+    }
+    
+    cat("Batch", batch_num, "เสร็จแล้ว\n")
+  }
+  
+  if (progress) {
+    close(pb)
+  }
+  
+  # รวมผลลัพธ์
+  if (length(all_results) > 0) {
+    final_results <- bind_rows(all_results)
+    
+    # สรุปผล
+    cat("\n=== สรุปผลการประมวลผล ===\n")
+    cat("ไฟล์ทั้งหมด:", length(existing_files), "\n")
+    cat("ประมวลผลสำเร็จ:", nrow(final_results), "\n")
+    cat("ล้มเหลว:", length(failed_files), "\n")
+    cat("รวม tokens ใช้:", sum(final_results$tokens_used, na.rm = TRUE), "\n")
+    
+    if (length(failed_files) > 0) {
+      cat("ไฟล์ที่ล้มเหลว:\n")
+      cat(paste("-", basename(failed_files), collapse = "\n"), "\n")
+    }
+    
+    return(final_results)
+  } else {
+    stop("ไม่มีไฟล์ที่ประมวลผลสำเร็จ")
+  }
+}
+
+
+
+#' OCR with Conversation Context for Handwriting Images
+#'
+#' @title ประมวลผล OCR แบบ conversation สำหรับการเก็บ context
+#' @description 
+#' ใช้ conversation API ของ OpenAI เพื่อให้โมเดลเรียนรู้จากรูปก่อนหน้า
+#' และสามารถแปลลายมือได้ดีขึ้นจากบริบทที่มีอยู่
+#' 
+#' @param image_paths vector ของ path ไฟล์รูป
+#' @param batch_size จำนวนไฟล์ต่อ conversation batch (default: 10)
+#' @param delay_seconds หน่วงเวลาระหว่าง batch (default: 2)
+#' @param api_key OpenAI API key (ถ้าไม่ระบุจะใช้จาก environment)
+#' @param model_config ชื่อโมเดลที่ใช้ (default: "gpt-4o-mini")
+#' @param progress แสดง progress (default: TRUE)
+#' @return data frame รวมผลลัพธ์ทั้งหมด
+#' @export
+ocr_batch_conversation <- function(image_paths,
+                                   batch_size = 10,
+                                   delay_seconds = 2,
+                                   ...) {
+  
+  # แบ่งเป็น batch
+  file_batches <- split(image_paths, ceiling(seq_along(image_paths) / batch_size))
+  
+  all_results <- list()
+  
+  for (batch_num in seq_along(file_batches)) {
+    cat("Batch", batch_num, "/", length(file_batches), "\n")
+    
+    # เริ่ม conversation ใหม่แต่ละ batch
+    conversation_results <- ocr_conversation_batch(
+      image_paths = file_batches[[batch_num]],
+      ...
+    )
+    
+    all_results <- append(all_results, list(conversation_results))
+    
+    if (batch_num < length(file_batches)) {
+      Sys.sleep(delay_seconds)
+    }
+  }
+  
+  return(bind_rows(all_results))
+}
+
+ocr_conversation_batch <- function(image_paths, 
+                                   api_key = NULL,
+                                   model_config = "gpt-4.1-mini") {
+  
+  if (is.null(api_key)) {
+    api_key <- Sys.getenv("OPENAI_API_KEY")
+  }
+  
+  # เริ่มต้น conversation
+  messages <- list(
+    list(role = "system", content ="
+         คุณกำลังช่วยสกัดคำตอบจากแบบเขียนของนักเรียนที่ถูกแปลงเป็นข้อความจาก OCR
+         ในเนื้อหานี้จะมีคำตอบของนักเรียนที่เขียนด้วยลายมืออยู่ในกรอบสี่เหลี่่ยม กรุณา
+         สกัดคำตอบทั้งหมดที่อยู่ภายในกรอบ โดยพยายามคงความหมายดั้งเดิมให้มากที่สุด และสกัดคำให้อยู่ในบริบทเดียวกัน
+         สอดคล้องกัน ออกมาให้ครบถ้วน ถ้ามีคำที่อ่านไม่ออกหรือผิดปกติให้คาดเดาให้สอดคล้องกับบริบทได้ โดนไม่่เปลี่ยนสำนวนหรือความหมายในภาพรวม **ไม่เอาบรรทัดที่เขียนว่า พื้นที่สำหรับตอบคำถาม ...**
+        "
+         )
+  )
+  
+  results <- list()
+  
+  for (i in seq_along(image_paths)) {
+    img_path <- image_paths[i]
+    
+    # เพิ่มรูปใน conversation
+    file_ext <- tools::file_ext(tolower(img_path))
+    mime_type <- ifelse(file_ext == "png", "image/png", "image/jpeg")
+    img_b64 <- base64enc::base64encode(img_path)
+    
+    # เพิ่ม user message
+    user_content <- list(
+      list(type = "text", text = paste("รูปที่", i, ":")),
+      list(type = "image_url", 
+           image_url = list(url = paste0("data:", mime_type, ";base64,", img_b64)))
+    )
+    
+    messages <- append(messages, list(list(role = "user", content = user_content)))
+    
+    # ส่ง request
+    resp <- request("https://api.openai.com/v1/chat/completions") |>
+      req_headers(
+        "Authorization" = paste("Bearer", api_key),
+        "Content-Type" = "application/json"
+      ) |>
+      req_body_json(list(
+        model = model_config,
+        max_tokens = 300,
+        temperature = 0.1,
+        messages = messages
+      )) |>
+      req_perform()
+    
+    res_json <- resp_body_json(resp)
+    answer <- res_json$choices[[1]]$message$content
+    
+    # เก็บผลลัพธ์
+    results[[i]] <- tibble::tibble(
+      image_file = basename(img_path),
+      answer = answer,
+      prompt_tokens = res_json$usage$prompt_tokens,
+      completion_tokens = res_json$usage$completion_tokens,
+      tokens_used = res_json$usage$total_tokens,
+      conversation_position = i
+    )
+    
+    # เพิ่ม assistant response ใน conversation
+    messages <- append(messages, list(list(role = "assistant", content = answer)))
+  }
+  
+  return(bind_rows(results))
+}
+
+
+
+

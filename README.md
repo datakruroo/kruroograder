@@ -319,18 +319,47 @@ Generated on: 2024-01-15 14:30:25
 
 ## 🔧 ฟังก์ชันหลักและการใช้งาน
 
+### 📝 ฟังก์ชันหลักสำหรับการตรวจข้อสอบ
+
 | ฟังก์ชัน | คำอธิบาย | ตัวอย่างการใช้ |
 |---------|----------|----------------|
 | `load_rubric()` | โหลดเกณฑ์การให้คะแนน | `rubric <- load_rubric("rubric/item_001.md")` |
 | `load_answer_key()` | โหลดเฉลยและแนวคำตอบ | `key <- load_answer_key("rubric/item_001_key.md")` |
 | `grade_responses()` | ตรวจและให้คะแนน (หลัก) | `results <- grade_responses(responses, rubric, key, .parallel = TRUE, system_prompt = "custom prompt")` |
-| `should_use_parallel()` | ตรวจสอบว่าควรใช้ parallel | `if(should_use_parallel(n)) { ... }` |
-| `get_optimal_cores()` | หาจำนวน cores ที่เหมาะสม | `cores <- get_optimal_cores(nrow(responses))` |
 | `export_results()` | ส่งออกผลลัพธ์ | `export_results(results, "output.csv")` |
 | `create_grading_report()` | สร้างรายงานสรุป | `create_grading_report(results, "report.md")` |
+| `create_grading_schema()` | สร้าง JSON schema สำหรับ LLM | `schema <- create_grading_schema()` |
+
+### 🔧 ฟังก์ชัน Utility และการจัดการข้อมูล
+
+| ฟังก์ชัน | คำอธิบาย | ตัวอย่างการใช้ |
+|---------|----------|----------------|
 | `validate_response_data()` | ตรวจสอบข้อมูล input | `validate_response_data(responses)` |
+| `init_logger()` | ตั้งค่า logging ระบบ | `init_logger("logs/app.log", "INFO")` |
+| `should_use_parallel()` | ตรวจสอบว่าควรใช้ parallel | `if(should_use_parallel(n)) { ... }` |
+| `get_optimal_cores()` | หาจำนวน cores ที่เหมาะสม | `cores <- get_optimal_cores(nrow(responses))` |
+
+### 📊 ฟังก์ชันการวิเคราะห์และตรวจสอบผลลัพธ์
+
+| ฟังก์ชัน | คำอธิบาย | ตัวอย่างการใช้ |
+|---------|----------|----------------|
 | `view_student_results()` | ดูรายละเอียดนักเรียน | `view_student_results(results, 1)` |
 | `extract_criteria_scores()` | แยกคะแนนแต่ละ criterion | `extract_criteria_scores(results)` |
+| `debug_per_criterion()` | วิเคราะห์โครงสร้าง per_criterion | `debug_per_criterion(results)` |
+
+### 📄 ฟังก์ชันจัดการ PDF สำหรับข้อสอบ
+
+| ฟังก์ชัน | คำอธิบาย | ตัวอย่างการใช้ |
+|---------|----------|----------------|
+| `split_pdf_by_question()` | แยก PDF ตามข้อสอบ | `split_pdf_by_question("exam.pdf", n_questions = 4)` |
+| `inspect_pdf_structure()` | ตรวจสอบโครงสร้าง PDF | `inspect_pdf_structure("exam.pdf", 4)` |
+
+### 🔍 ฟังก์ชัน OCR สำหรับลายมือ
+
+| ฟังก์ชัน | คำอธิบาย | ตัวอย่างการใช้ |
+|---------|----------|----------------|
+| `ocr_handwriting()` | แปลงลายมือเป็นข้อความ | `result <- ocr_handwriting("handwriting.jpg")` |
+| `ocr_batch_handwriting()` | OCR หลายไฟล์พร้อมกัน | `results <- ocr_batch_handwriting(image_paths)` |
 
 ## 🎨 การปรับแต่ง System Prompt
 
@@ -386,6 +415,856 @@ large_results <- grade_responses(
   .cores = get_optimal_cores(nrow(responses)),
   .progress = TRUE
 )
+```
+
+## 📄 การจัดการไฟล์ PDF และ OCR
+
+### การแยก PDF ตามข้อสอบ
+
+kruroograder รองรับการแยกไฟล์ PDF ที่มีกระดาษคำตอบหลายคนออกเป็นไฟล์แยกตามข้อสอบ เหมาะสำหรับกรณีที่สแกนกระดาษคำตอบแบบเรียงลำดับ:
+
+```r
+# ตรวจสอบโครงสร้าง PDF ก่อน
+inspect_pdf_structure("exam_scanned.pdf", n_questions = 4)
+
+# แยก PDF เป็นไฟล์ตามข้อ
+result <- split_pdf_by_question(
+  input_pdf = "exam_scanned.pdf",
+  n_questions = 4,
+  out_dir = "separated_questions",
+  filename_prefix = "Q",
+  filename_suffix = "_all.pdf",
+  dry_run = FALSE,       # ตั้งเป็น TRUE เพื่อทดสอบก่อน
+  overwrite = TRUE
+)
+
+# ดูผลลัพธ์
+print(result$summary)
+```
+
+#### ตัวอย่าง Output:
+```
+กำลังแยก PDF เป็น 4 ไฟล์...
+✓ สร้าง Q1_all.pdf (25 หน้า)
+✓ สร้าง Q2_all.pdf (25 หน้า)  
+✓ สร้าง Q3_all.pdf (25 หน้า)
+✓ สร้าง Q4_all.pdf (25 หน้า)
+```
+
+### การใช้งาน OCR สำหรับลายมือ
+
+ระบบ kruroograder รองรับการแปลงลายมือจากภาพเป็นข้อความโดยใช้ OpenAI Vision API ซึ่งเหมาะสมสำหรับการประมวลผลข้อสอบที่เขียนด้วยลายมือ
+
+#### 🎯 คุณสมบัติของ OCR System
+
+- **รองรับภาพหลายรูปแบบ**: JPG, PNG, JPEG, GIF, WebP
+- **ประมวลผลแบบ Batch**: สามารถประมวลผลภาพหลายไฟล์พร้อมกัน
+- **ปรับแต่ง System Prompt ได้**: สำหรับการสกัดข้อความแบบเฉพาะทาง
+- **จัดการ Rate Limiting**: มีการหน่วงเวลาระหว่างการเรียก API
+- **Error Handling**: จัดการข้อผิดพลาดและไฟล์ที่ประมวลผลไม่ได้
+- **Progress Tracking**: แสดงความคืบหน้าระหว่างการประมวลผล
+
+#### 🔧 การตั้งค่าเบื้องต้น
+
+```r
+# ตั้งค่า OpenAI API Key
+Sys.setenv(OPENAI_API_KEY = "your-openai-api-key")
+
+# ตรวจสอบการตั้งค่า
+if (Sys.getenv("OPENAI_API_KEY") == "") {
+  stop("กรุณาตั้งค่า OPENAI_API_KEY")
+}
+
+# โหลดแพ็กเกจที่จำเป็น
+library(kruroograder)
+library(dplyr)
+library(readr)
+```
+
+#### 📸 OCR ไฟล์เดี่ยว
+
+```r
+# OCR ไฟล์เดี่ยวแบบพื้นฐาน
+result <- ocr_handwriting(
+  image_path = "student_answer.jpg"
+)
+
+# ดูผลลัพธ์
+cat("คำตอบที่สกัดได้:\n", result$answer)
+cat("\nสถิติการใช้งาน:\n")
+cat("- Prompt tokens:", result$prompt_tokens, "\n")
+cat("- Completion tokens:", result$completion_tokens, "\n")
+cat("- รวม tokens:", result$tokens_used, "\n")
+```
+
+#### 🎨 การปรับแต่ง System Prompt สำหรับ OCR
+
+```r
+# สำหรับข้อสอบคณิตศาสตร์
+math_prompt <- "สกัดคำตอบทางคณิตศาสตร์จากภาพลายมือ รวมถึงสูตร สมการ และการคำนวณ 
+ให้ระวังเลขและสัญลักษณ์ทางคณิตศาสตร์ เช่น +, -, ×, ÷, =, √ ให้แม่นยำ"
+
+math_result <- ocr_handwriting(
+  image_path = "math_answer.jpg",
+  system_prompt = math_prompt,
+  model_config = "gpt-4o"  # ใช้โมเดลที่แม่นยำกว่า
+)
+
+# สำหรับข้อสอบวิทยาศาสตร์
+science_prompt <- "สกัดคำตอบวิทยาศาสตร์จากภาพลายมือ ให้ความสำคัญกับ:
+- คำศัพท์ทางวิทยาศาสตร์
+- ชื่อสารเคมี และสูตรเคมี
+- หน่วยการวัด เช่น มก., ลิตร, เซลเซียส
+- ขั้นตอนการทดลอง"
+
+science_result <- ocr_handwriting(
+  image_path = "science_answer.jpg",
+  system_prompt = science_prompt
+)
+
+# สำหรับข้อสอบภาษาไทย
+thai_prompt <- "สกัดคำตอบภาษาไทยจากภาพลายมือ ให้ความสำคัญกับ:
+- การสะกดคำให้ถูกต้อง
+- เครื่องหมายวรรคตอน
+- การใช้ไม้หันอากาศ ไม้ไต่คู้
+- ความสมบูรณ์ของประโยค"
+
+thai_result <- ocr_handwriting(
+  image_path = "thai_answer.jpg",
+  system_prompt = thai_prompt
+)
+```
+
+#### 🔄 OCR หลายไฟล์พร้อมกัน (Batch Processing)
+
+```r
+# เตรียมรายการไฟล์
+image_dir <- "student_images"
+image_files <- list.files(image_dir, 
+                         pattern = "\\.(jpg|jpeg|png)$", 
+                         full.names = TRUE)
+
+cat("พบไฟล์ภาพ", length(image_files), "ไฟล์\n")
+
+# OCR แบบ batch พร้อมการตั้งค่าที่เหมาะสม
+batch_results <- ocr_batch_handwriting(
+  image_paths = image_files,
+  batch_size = 5,                    # ประมวลผลทีละ 5 ไฟล์
+  system_prompt = "สกัดคำตอบของนักเรียนจากภาพลายมือให้ครบถ้วนและแม่นยำ 
+                  ไม่เอาข้อความที่เขียนว่า 'พื้นที่สำหรับตอบคำถาม' หรือคำแนะนำอื่นๆ",
+  delay_seconds = 3,                 # หน่วงเวลา 3 วินาทีระหว่างไฟล์
+  progress = TRUE,                   # แสดง progress bar
+  save_intermediate = TRUE,          # บันทึกผลลัพธ์ระหว่างทาง
+  model_config = "gpt-4o-mini",
+  max_tokens = 800
+)
+
+# ดูสรุปผลลัพธ์
+print(batch_results)
+```
+
+#### 📊 ตัวอย่างผลลัพธ์ OCR:
+
+```r
+> head(batch_results, 3)
+# A tibble: 3 × 7
+  image_file     answer                          prompt_tokens completion_tokens tokens_used model_used  processed_at       
+  <chr>          <chr>                                   <int>             <int>       <int> <chr>       <dttm>            
+1 student001.jpg "การใช้ข้อมูลในการตัดสินใจมีค…"            850               120         970 gpt-4o-mini 2024-10-11 14:30:45
+2 student002.jpg "ข้อมูลมีความสำคัญต่อการตัดส…"             780               95          875 gpt-4o-mini 2024-10-11 14:30:48  
+3 student003.jpg "ในยุคปัจจุบันข้อมูลเป็นสิ่ง…"              920               135        1055 gpt-4o-mini 2024-10-11 14:30:51
+
+> # สถิติการใช้งาน
+> summarise(batch_results,
++   total_images = n(),
++   total_tokens = sum(tokens_used),
++   avg_tokens_per_image = mean(tokens_used),
++   total_cost_estimate = total_tokens * 0.00015 / 1000  # ประมาณการค่าใช้จ่าย
++ )
+# A tibble: 1 × 4
+  total_images total_tokens avg_tokens_per_image total_cost_estimate
+         <int>        <int>                <dbl>               <dbl>
+1           25        24500                  980               0.037
+```
+
+#### 🔍 การตรวจสอบคุณภาพ OCR
+
+```r
+# ฟังก์ชันตรวจสอบคุณภาพ OCR
+check_ocr_quality <- function(ocr_results) {
+  cat("=== การประเมินคุณภาพ OCR ===\n")
+  
+  # ตรวจสอบความยาวคำตอบ
+  answer_lengths <- nchar(ocr_results$answer)
+  cat("ความยาวคำตอบ:\n")
+  cat("  - เฉลี่ย:", round(mean(answer_lengths)), "ตัวอักษร\n")
+  cat("  - น้อยสุด:", min(answer_lengths), "ตัวอักษร\n")
+  cat("  - มากสุด:", max(answer_lengths), "ตัวอักษร\n")
+  
+  # ตรวจสอบคำตอบที่สั้นผิดปกติ (อาจเป็น OCR error)
+  short_answers <- which(answer_lengths < 20)
+  if (length(short_answers) > 0) {
+    cat("\n⚠️  คำตอบที่สั้นผิดปกติ (< 20 ตัวอักษร):\n")
+    for (i in short_answers) {
+      cat("  -", ocr_results$image_file[i], ":", ocr_results$answer[i], "\n")
+    }
+  }
+  
+  # ตรวจสอบการใช้ tokens
+  cat("\nการใช้ tokens:\n")
+  cat("  - เฉลี่ย:", round(mean(ocr_results$tokens_used)), "tokens/ภาพ\n")
+  cat("  - รวมทั้งหมด:", sum(ocr_results$tokens_used), "tokens\n")
+  
+  return(invisible(ocr_results))
+}
+
+# ใช้งาน
+check_ocr_quality(batch_results)
+```
+
+#### 💡 เทคนิคการปรับปรุงคุณภาพ OCR
+
+```r
+# 1. การเลือกโมเดลตามความซับซ้อน
+simple_ocr <- function(image_path) {
+  ocr_handwriting(image_path, model_config = "gpt-4o-mini")  # เร็ว, ประหยัด
+}
+
+complex_ocr <- function(image_path) {
+  ocr_handwriting(image_path, model_config = "gpt-4o")       # แม่นยำกว่า
+}
+
+# 2. การใช้ System Prompt เฉพาะสำหรับข้อสอบแต่ละประเภท
+create_subject_prompt <- function(subject) {
+  prompts <- list(
+    math = "สกัดคำตอบคณิตศาสตร์ ให้ความสำคัญกับตัวเลข สูตร และเครื่องหมาย",
+    science = "สกัดคำตอบวิทยาศาสตร์ ให้ความสำคัญกับคำศัพท์เฉพาะและหน่วย", 
+    thai = "สกัดคำตอบภาษาไทย ให้ความสำคัญกับการสะกดและเครื่องหมายวรรคตอน",
+    english = "สกัดคำตอบภาษาอังกฤษ ให้ความสำคัญกับ grammar และ spelling",
+    social = "สกัดคำตอบสังคมศึกษา ให้ความสำคัญกับชื่อสถานที่ วันที่ และเหตุการณ์"
+  )
+  return(prompts[[subject]] %||% "สกัดคำตอบจากภาพลายมือให้ถูกต้องและครบถ้วน")
+}
+
+# ใช้งาน
+math_results <- ocr_batch_handwriting(
+  image_paths = math_images,
+  system_prompt = create_subject_prompt("math")
+)
+```
+
+#### 🚀 Workflow ครบวงจร: OCR + การตรวจข้อสอบ
+
+```r
+# ========== ขั้นตอนที่ 1: เตรียมข้อมูล ==========
+library(kruroograder)
+library(dplyr)
+library(stringr)
+
+# ตั้งค่า API
+Sys.setenv(OPENAI_API_KEY = "your-api-key")
+
+# โหลด rubric และ answer key
+rubric <- load_rubric("rubric/item_006_rubric.md")
+answer_key <- load_answer_key("rubric/item_006_key.md")
+
+# ========== ขั้นตอนที่ 2: OCR ภาพลายมือ ==========
+image_dir <- "student_handwriting/"
+image_files <- list.files(image_dir, pattern = "\\.(jpg|png)$", full.names = TRUE)
+
+# กำหนด system prompt สำหรับวิชาที่ตรวจ
+subject_prompt <- "สกัดคำตอบของนักเรียนจากภาพลายมือในวิชาการใช้ข้อมูลเพื่อการตัดสินใจ 
+ให้ความสำคัญกับ:
+- แนวคิดและทฤษฎีที่เกี่ยวข้อง
+- ตัวอย่างประกอบการอธิบาย  
+- การเชื่อมโยงเนื้อหาเข้าด้วยกัน
+ไม่ต้องเอาข้อความแนะนำหรือส่วนหัวของกระดาษมา"
+
+# OCR แบบ batch
+cat("🔍 เริ่มการ OCR ภาพลายมือ...\n")
+ocr_results <- ocr_batch_handwriting(
+  image_paths = image_files,
+  batch_size = 8,
+  system_prompt = subject_prompt,
+  delay_seconds = 2,
+  progress = TRUE,
+  save_intermediate = TRUE,
+  model_config = "gpt-4o-mini"
+)
+
+cat("✅ OCR เสร็จสิ้น! ประมวลผลได้", nrow(ocr_results), "ไฟล์\n")
+
+# ========== ขั้นตอนที่ 3: เตรียมข้อมูลสำหรับการตรวจ ==========
+# แปลงผล OCR เป็นรูปแบบที่ grade_responses() ต้องการ
+responses_from_ocr <- ocr_results %>%
+  mutate(
+    # สกัด student_id จากชื่อไฟล์ (เช่น student_001.jpg -> 001)
+    student_id = str_extract(image_file, "\\d+"),
+    item_id = "item_006",                    # รหัสข้อสอบ
+    response_text = answer,                  # คำตอบที่ OCR ได้
+    question_text = rubric$question          # คำถาม
+  ) %>%
+  select(student_id, item_id, response_text, question_text) %>%
+  filter(!is.na(student_id), nchar(response_text) > 10)  # กรองข้อมูลที่ไม่สมบูรณ์
+
+cat("📝 เตรียมข้อมูลสำหรับการตรวจได้", nrow(responses_from_ocr), "รายการ\n")
+
+# ตรวจสอบข้อมูล
+validate_response_data(responses_from_ocr)
+
+# ========== ขั้นตอนที่ 4: ตรวจและให้คะแนน ==========
+cat("🤖 เริ่มการตรวจข้อสอบด้วย AI...\n")
+
+grading_results <- grade_responses(
+  responses = responses_from_ocr,
+  rubric = rubric,
+  key = answer_key,
+  system_prompt = "ประเมินคำตอบที่มาจาก OCR โดยคำนึงว่าอาจมีข้อผิดพลาดในการสกัดข้อความ 
+                  ให้ความสำคัญกับเนื้อหาและความเข้าใจมากกว่าการสะกดที่แม่นยำ",
+  .parallel = should_use_parallel(nrow(responses_from_ocr)),
+  .cores = get_optimal_cores(nrow(responses_from_ocr)),
+  .progress = TRUE,
+  model_config = "gpt-4o-mini"
+)
+
+cat("✅ การตรวจเสร็จสิ้น!\n")
+
+# ========== ขั้นตอนที่ 5: รวมผลลัพธ์และส่งออก ==========
+# รวมข้อมูล OCR และผลการตรวจ
+final_results <- grading_results %>%
+  left_join(
+    ocr_results %>% 
+      select(image_file, tokens_used_ocr = tokens_used, processed_at), 
+    by = c("student_id" = str_extract(ocr_results$image_file, "\\d+"))
+  )
+
+# สร้างรายงานสรุป
+summary_report <- final_results %>%
+  summarise(
+    total_students = n(),
+    mean_score = round(mean(total_score, na.rm = TRUE), 2),
+    median_score = median(total_score, na.rm = TRUE),
+    min_score = min(total_score, na.rm = TRUE),
+    max_score = max(total_score, na.rm = TRUE),
+    total_ocr_tokens = sum(tokens_used_ocr, na.rm = TRUE),
+    estimated_cost = round(total_ocr_tokens * 0.00015 / 1000, 4)
+  )
+
+print(summary_report)
+
+# ส่งออกผลลัพธ์
+export_results(final_results, "output/ocr_grading_results.xlsx", 
+               format = "xlsx", include_feedback = TRUE)
+
+# สร้างรายงานการตรวจ
+create_grading_report(final_results, "output/ocr_grading_report.md")
+
+cat("📊 ส่งออกผลลัพธ์เรียบร้อย!\n")
+```
+
+#### 📈 การตรวจสอบและปรับปรุงคุณภาพ
+
+```r
+# ฟังก์ชันเปรียบเทียบคำตอบ OCR กับการพิมพ์
+compare_ocr_manual <- function(ocr_text, manual_text) {
+  # คำนวณความคล้ายคลึง (simple similarity)
+  similarity <- 1 - adist(ocr_text, manual_text) / max(nchar(ocr_text), nchar(manual_text))
+  
+  list(
+    similarity = round(similarity, 3),
+    ocr_length = nchar(ocr_text),
+    manual_length = nchar(manual_text),
+    length_diff = abs(nchar(ocr_text) - nchar(manual_text))
+  )
+}
+
+# ฟังก์ชันหา OCR errors ที่พบบ่อย
+analyze_ocr_errors <- function(ocr_results) {
+  errors <- list()
+  
+  # คำที่อาจมีปัญหาในการ OCR
+  problematic_patterns <- c(
+    "กำลัง" = c("กาลัง", "การัง", "กำร่ง"),
+    "ความ" = c("ฃวาม", "ค ว าม", "ความ"),
+    "ตัวอย่าง" = c("ตัวอย าง", "ตัวอยาง", "ตั ว อ ย่ า ง"),
+    "ข้อมูล" = c("ข อมูล", "ขอมูล", "ข้อ มูล")
+  )
+  
+  for (correct in names(problematic_patterns)) {
+    wrong_versions <- problematic_patterns[[correct]]
+    for (wrong in wrong_versions) {
+      count <- sum(grepl(wrong, ocr_results$answer, fixed = TRUE))
+      if (count > 0) {
+        errors[[paste(wrong, "->", correct)]] <- count
+      }
+    }
+  }
+  
+  return(errors)
+}
+
+# วิเคราะห์ความน่าเชื่อถือของ OCR
+assess_ocr_reliability <- function(ocr_results) {
+  cat("=== การประเมินความน่าเชื่อถือ OCR ===\n")
+  
+  # วิเคราะห์ความยาวคำตอบ
+  answer_lengths <- nchar(ocr_results$answer)
+  
+  cat("📏 สถิติความยาวคำตอบ:\n")
+  cat("   เฉลี่ย:", round(mean(answer_lengths)), "ตัวอักษร\n")
+  cat("   ส่วนเบี่ยงเบนมาตรฐาน:", round(sd(answer_lengths)), "\n")
+  
+  # หาคำตอบที่ผิดปกติ
+  outliers <- which(answer_lengths < quantile(answer_lengths, 0.1) | 
+                   answer_lengths > quantile(answer_lengths, 0.9))
+  
+  if (length(outliers) > 0) {
+    cat("\n⚠️  คำตอบที่อาจมีปัญหา OCR:\n")
+    for (i in outliers[1:min(5, length(outliers))]) {
+      cat("   -", ocr_results$image_file[i], 
+          "(", answer_lengths[i], "ตัวอักษร):\n")
+      cat("     ", substr(ocr_results$answer[i], 1, 100), "...\n")
+    }
+  }
+  
+  # วิเคราะห์ errors ที่พบบ่อย
+  errors <- analyze_ocr_errors(ocr_results)
+  if (length(errors) > 0) {
+    cat("\n🔍 ข้อผิดพลาด OCR ที่พบบ่อย:\n")
+    for (error in names(errors)) {
+      cat("   -", error, ":", errors[[error]], "ครั้ง\n")
+    }
+  }
+  
+  return(invisible(list(lengths = answer_lengths, errors = errors)))
+}
+
+# ใช้งาน
+reliability_check <- assess_ocr_reliability(batch_results)
+```
+
+#### 💰 การคำนวณต้นทุน OCR
+
+```r
+# ฟังก์ชันคำนวณต้นทุน
+calculate_ocr_cost <- function(ocr_results, 
+                              cost_per_1k_tokens = 0.00015) {  # ราคา gpt-4o-mini
+  
+  total_tokens <- sum(ocr_results$tokens_used, na.rm = TRUE)
+  total_cost <- total_tokens * cost_per_1k_tokens / 1000
+  cost_per_image <- total_cost / nrow(ocr_results)
+  
+  cat("💰 การคำนวณต้นทุน OCR\n")
+  cat("   จำนวนภาพ:", nrow(ocr_results), "ภาพ\n")
+  cat("   รวม tokens:", format(total_tokens, big.mark = ","), "tokens\n")
+  cat("   ต้นทุนรวม: $", round(total_cost, 4), "\n")
+  cat("   ต้นทุนต่อภาพ: $", round(cost_per_image, 4), "\n")
+  cat("   ต้นทุนต่อภาพ:", round(cost_per_image * 35, 2), "บาท (ประมาณ)\n")
+  
+  return(list(
+    total_cost = total_cost,
+    cost_per_image = cost_per_image,
+    total_tokens = total_tokens
+  ))
+}
+
+# เปรียบเทียบต้นทุนโมเดลต่างๆ
+compare_model_costs <- function(n_images, avg_tokens_per_image = 1000) {
+  models <- list(
+    "gpt-4o-mini" = 0.00015,
+    "gpt-4o" = 0.0025,
+    "gpt-4-turbo" = 0.001
+  )
+  
+  cat("📊 เปรียบเทียบต้นทุนโมเดล (", n_images, "ภาพ):\n")
+  
+  for (model in names(models)) {
+    total_tokens <- n_images * avg_tokens_per_image
+    cost <- total_tokens * models[[model]] / 1000
+    cat("   ", model, ": $", round(cost, 4), 
+        " (", round(cost * 35, 2), " บาท)\n")
+  }
+}
+
+# ใช้งาน
+cost_analysis <- calculate_ocr_cost(batch_results)
+compare_model_costs(100)  # สำหรับ 100 ภาพ
+```
+
+#### ⚡ Best Practices สำหรับ OCR
+
+```r
+# 1. ✅ การเตรียมภาพที่ดี
+prepare_images_for_ocr <- function(image_dir) {
+  cat("📋 เช็คลิสต์การเตรียมภาพ:\n")
+  cat("   ✓ ความละเอียด: อย่างน้อย 300 DPI\n")
+  cat("   ✓ ความชัดเจน: ไม่เบลอ, แสงเพียงพอ\n") 
+  cat("   ✓ การครอบตัด: เฉพาะพื้นที่คำตอบ\n")
+  cat("   ✓ ทิศทาง: ภาพตั้งตรง, ไม่เอียง\n")
+  cat("   ✓ รูปแบบ: JPG หรือ PNG\n")
+  cat("   ✓ ขนาดไฟล์: ไม่เกิน 20MB ต่อไฟล์\n")
+}
+
+# 2. ✅ การจัดระเบียบไฟล์
+organize_image_files <- function(source_dir, output_dir) {
+  # สร้างโครงสร้างโฟลเดอร์
+  dir.create(file.path(output_dir, "processed"), showWarnings = FALSE)
+  dir.create(file.path(output_dir, "failed"), showWarnings = FALSE)
+  dir.create(file.path(output_dir, "backup"), showWarnings = FALSE)
+  
+  cat("📁 โครงสร้างโฟลเดอร์:\n")
+  cat("   📂", output_dir, "/processed/  <- ไฟล์ที่ประมวลผลแล้ว\n")
+  cat("   📂", output_dir, "/failed/     <- ไฟล์ที่ประมวลผลไม่ได้\n") 
+  cat("   📂", output_dir, "/backup/     <- สำรองไฟล์ต้นฉบับ\n")
+}
+
+# 3. ✅ การตั้งชื่อไฟล์แบบเป็นระบบ
+create_naming_convention <- function() {
+  cat("📝 แนวทางการตั้งชื่อไฟล์:\n")
+  cat("   รูปแบบ: student_[ID]_item_[ITEM]_page_[PAGE].jpg\n")
+  cat("   ตัวอย่าง:\n")
+  cat("     - student_001_item_006_page_1.jpg\n")
+  cat("     - student_002_item_006_page_1.jpg\n")
+  cat("     - student_003_item_007_page_1.jpg\n")
+}
+
+# 4. ✅ การประมวลผลแบบปลอดภัย
+safe_ocr_processing <- function(image_paths, ...) {
+  # สร้างการสำรองข้อมูล
+  backup_dir <- paste0("backup_", Sys.Date())
+  dir.create(backup_dir, showWarnings = FALSE)
+  
+  cat("💾 สำรองข้อมูลใน:", backup_dir, "\n")
+  
+  # ประมวลผลพร้อม error handling
+  tryCatch({
+    results <- ocr_batch_handwriting(
+      image_paths = image_paths,
+      save_intermediate = TRUE,  # บันทึกผลระหว่างทาง
+      ...
+    )
+    
+    # สำรองผลลัพธ์
+    write_csv(results, file.path(backup_dir, "ocr_results.csv"))
+    cat("✅ บันทึกผลลัพธ์สำรองแล้ว\n")
+    
+    return(results)
+    
+  }, error = function(e) {
+    cat("❌ เกิดข้อผิดพลาด:", e$message, "\n")
+    cat("💡 ตรวจสอบ:\n")
+    cat("   - API key ถูกต้องหรือไม่\n")
+    cat("   - ไฟล์ภาพเสียหายหรือไม่\n")
+    cat("   - เน็ตเวิร์กเชื่อมต่อปกติหรือไม่\n")
+    return(NULL)
+  })
+}
+
+# 5. ✅ การตรวจสอบก่อนเริ่มงาน
+pre_flight_check <- function(image_dir, api_key = NULL) {
+  cat("🚀 การตรวจสอบก่อนเริ่ม OCR\n")
+  
+  # ตรวจสอบ API key
+  api_key <- api_key %||% Sys.getenv("OPENAI_API_KEY")
+  if (api_key == "" || is.null(api_key)) {
+    cat("❌ ไม่พบ OpenAI API key\n")
+    return(FALSE)
+  } else {
+    cat("✅ พบ API key\n")
+  }
+  
+  # ตรวจสอบไฟล์ภาพ
+  if (!dir.exists(image_dir)) {
+    cat("❌ ไม่พบโฟลเดอร์:", image_dir, "\n")
+    return(FALSE)
+  }
+  
+  image_files <- list.files(image_dir, pattern = "\\.(jpg|jpeg|png)$", ignore.case = TRUE)
+  cat("📁 พบไฟล์ภาพ:", length(image_files), "ไฟล์\n")
+  
+  if (length(image_files) == 0) {
+    cat("❌ ไม่พบไฟล์ภาพในโฟลเดอร์\n")
+    return(FALSE)
+  }
+  
+  # ตรวจสอบขนาดไฟล์
+  file_sizes <- file.info(file.path(image_dir, image_files))$size / 1024 / 1024  # MB
+  large_files <- which(file_sizes > 20)
+  
+  if (length(large_files) > 0) {
+    cat("⚠️  ไฟล์ใหญ่เกิน 20MB:", length(large_files), "ไฟล์\n")
+    cat("   แนะนำให้ลดขนาดก่อนประมวลผล\n")
+  }
+  
+  # ประมาณการต้นทุน
+  estimated_cost <- length(image_files) * 1000 * 0.00015 / 1000  # ประมาณ 1000 tokens/ภาพ
+  cat("💰 ประมาณการต้นทุน: $", round(estimated_cost, 4), 
+      " (", round(estimated_cost * 35, 2), " บาท)\n")
+  
+  cat("✅ พร้อมเริ่ม OCR!\n")
+  return(TRUE)
+}
+
+# ตัวอย่างการใช้งาน Best Practices
+run_complete_ocr_workflow <- function(image_dir, output_dir) {
+  # 1. ตรวจสอบก่อนเริ่ม
+  if (!pre_flight_check(image_dir)) {
+    stop("การตรวจสอบไม่ผ่าน กรุณาแก้ไขปัญหาก่อน")
+  }
+  
+  # 2. จัดระเบียบไฟล์
+  organize_image_files(image_dir, output_dir)
+  
+  # 3. ประมวลผลอย่างปลอดภัย
+  image_files <- list.files(image_dir, pattern = "\\.(jpg|png)$", 
+                           full.names = TRUE, ignore.case = TRUE)
+  
+  results <- safe_ocr_processing(
+    image_paths = image_files,
+    batch_size = 5,
+    delay_seconds = 2,
+    progress = TRUE
+  )
+  
+  # 4. ตรวจสอบคุณภาพ
+  if (!is.null(results)) {
+    reliability_check <- assess_ocr_reliability(results)
+    cost_analysis <- calculate_ocr_cost(results)
+  }
+  
+  return(results)
+}
+```
+
+#### 🎯 เคล็ดลับการใช้ OCR ให้มีประสิทธิภาพ
+
+##### 1. **การปรับปรุงคุณภาพภาพก่อน OCR**
+```bash
+# ใช้ ImageMagick ปรับปรุงภาพ (ถ้ามี)
+convert input.jpg -density 300 -sharpen 0x1 -contrast-stretch 0.1x0.1% output.jpg
+
+# หรือใช้ R package magick
+library(magick)
+img <- image_read("student_answer.jpg")
+img_processed <- img %>%
+  image_resize("2000x") %>%      # เพิ่มความละเอียด
+  image_enhance() %>%            # เพิ่มความคมชัด
+  image_contrast(sharpen = 1)    # เพิ่ม contrast
+
+image_write(img_processed, "student_answer_processed.jpg")
+```
+
+##### 2. **การจัดการไฟล์ขนาดใหญ่**
+```r
+# แบ่งการประมวลผลเป็นกลุ่มเล็กๆ
+process_large_batch <- function(image_dir, max_batch_size = 20) {
+  all_files <- list.files(image_dir, pattern = "\\.(jpg|png)$", full.names = TRUE)
+  n_batches <- ceiling(length(all_files) / max_batch_size)
+  
+  all_results <- list()
+  
+  for (i in 1:n_batches) {
+    start_idx <- (i - 1) * max_batch_size + 1
+    end_idx <- min(i * max_batch_size, length(all_files))
+    batch_files <- all_files[start_idx:end_idx]
+    
+    cat("กำลังประมวลผล batch", i, "/", n_batches, "\n")
+    
+    batch_result <- ocr_batch_handwriting(
+      image_paths = batch_files,
+      batch_size = 5,
+      delay_seconds = 3
+    )
+    
+    # บันทึกผลแต่ละ batch
+    write_csv(batch_result, paste0("batch_", i, "_results.csv"))
+    all_results[[i]] <- batch_result
+    
+    # พักระหว่าง batch
+    if (i < n_batches) Sys.sleep(10)
+  }
+  
+  return(bind_rows(all_results))
+}
+```
+
+##### 3. **การ Validate ผล OCR**
+```r
+# ฟังก์ชันตรวจสอบความถูกต้องของ OCR
+validate_ocr_output <- function(ocr_results, min_chars = 20, max_chars = 2000) {
+  validation_report <- ocr_results %>%
+    mutate(
+      char_count = nchar(answer),
+      has_thai = grepl("[ก-ฮ]", answer),
+      has_numbers = grepl("[0-9]", answer),
+      has_english = grepl("[a-zA-Z]", answer),
+      too_short = char_count < min_chars,
+      too_long = char_count > max_chars,
+      suspicious = too_short | too_long | (!has_thai & char_count > 50)
+    )
+  
+  # สรุปผล
+  cat("📊 สรุปการ Validate OCR:\n")
+  cat("   ทั้งหมด:", nrow(validation_report), "ไฟล์\n")
+  cat("   สั้นเกินไป:", sum(validation_report$too_short), "ไฟล์\n")
+  cat("   ยาวเกินไป:", sum(validation_report$too_long), "ไฟล์\n")  
+  cat("   น่าสงสัย:", sum(validation_report$suspicious), "ไฟล์\n")
+  
+  # แสดงรายการไฟล์ที่น่าสงสัย
+  suspicious_files <- validation_report %>%
+    filter(suspicious) %>%
+    select(image_file, char_count, answer) %>%
+    slice_head(n = 5)
+  
+  if (nrow(suspicious_files) > 0) {
+    cat("\n⚠️  ไฟล์ที่ควรตรวจสอบ:\n")
+    for (i in 1:nrow(suspicious_files)) {
+      cat("   ", suspicious_files$image_file[i], 
+          " (", suspicious_files$char_count[i], " ตัวอักษร)\n")
+    }
+  }
+  
+  return(validation_report)
+}
+```
+
+#### 📚 ตัวอย่างการใช้งานจริง
+
+```r
+# ========== ตัวอย่างที่ 1: ข้อสอบคณิตศาสตร์ ==========
+math_ocr_workflow <- function() {
+  # System prompt เฉพาะสำหรับคณิตศาสตร์
+  math_prompt <- "สกัดคำตอบคณิตศาสตร์จากภาพลายมือ ให้ความสำคัญกับ:
+  - ตัวเลขและเศษส่วน
+  - เครื่องหมายทางคณิตศาสตร์ (+, -, ×, ÷, =, √, ^)
+  - สมการและการคำนวณ
+  - หน่วยการวัด (ซม., ตร.ม., ลบ.ม.)
+  ให้แยกขั้นตอนการทำโจทย์ออกเป็นบรรทัด"
+  
+  image_files <- list.files("math_exam/", pattern = "\\.jpg$", full.names = TRUE)
+  
+  results <- ocr_batch_handwriting(
+    image_paths = image_files,
+    system_prompt = math_prompt,
+    model_config = "gpt-4o",  # ใช้โมเดลที่แม่นยำกว่า
+    batch_size = 3,
+    delay_seconds = 5
+  )
+  
+  return(results)
+}
+
+# ========== ตัวอย่างที่ 2: ข้อสอบเรียงความ ==========
+essay_ocr_workflow <- function() {
+  essay_prompt <- "สกัดเรียงความจากภาพลายมือ ให้ความสำคัญกับ:
+  - โครงสร้างย่อหน้า
+  - เครื่องหมายวรรคตอน
+  - การเชื่อมโยงความคิด
+  - ความสมบูรณ์ของข้อความ
+  แยกย่อหน้าด้วยการขึ้นบรรทัดใหม่"
+  
+  essay_files <- list.files("essay_exam/", pattern = "\\.jpg$", full.names = TRUE)
+  
+  results <- ocr_batch_handwriting(
+    image_paths = essay_files,
+    system_prompt = essay_prompt,
+    max_tokens = 1500,  # เพิ่ม tokens สำหรับเรียงความยาว
+    batch_size = 2,
+    delay_seconds = 8
+  )
+  
+  return(results)
+}
+
+# ========== ตัวอย่างที่ 3: ข้อสอบแบบผสม ==========
+mixed_subject_workflow <- function() {
+  # ระบุประเภทข้อสอบในชื่อไฟล์
+  all_files <- list.files("mixed_exam/", pattern = "\\.jpg$", full.names = TRUE)
+  
+  results_list <- list()
+  
+  for (file in all_files) {
+    # ระบุประเภทจากชื่อไฟล์
+    if (grepl("math", basename(file))) {
+      prompt <- create_subject_prompt("math")
+      model <- "gpt-4o"
+    } else if (grepl("science", basename(file))) {
+      prompt <- create_subject_prompt("science")  
+      model <- "gpt-4o-mini"
+    } else if (grepl("thai", basename(file))) {
+      prompt <- create_subject_prompt("thai")
+      model <- "gpt-4o-mini"
+    } else {
+      prompt <- "สกัดคำตอบจากภาพลายมือให้ครบถ้วนและแม่นยำ"
+      model <- "gpt-4o-mini"
+    }
+    
+    result <- ocr_handwriting(
+      image_path = file,
+      system_prompt = prompt,
+      model_config = model
+    )
+    
+    results_list[[basename(file)]] <- result
+    Sys.sleep(2)  # หน่วงเวลาระหว่างไฟล์
+  }
+  
+  return(bind_rows(results_list))
+}
+```
+
+### 🏆 สรุป: จาก OCR สู่การตรวจข้อสอบที่สมบูรณ์
+
+ระบบ OCR ใน kruroograder ช่วยให้คุณสามารถ:
+
+1. **แปลงลายมือเป็นข้อความ** ด้วยความแม่นยำสูง
+2. **ประมวลผลเป็นชุดใหญ่** ได้อย่างมีประสิทธิภาพ  
+3. **ปรับแต่งตามประเภทวิชา** ที่แตกต่างกัน
+4. **ตรวจสอบคุณภาพ** และจัดการข้อผิดพลาด
+5. **คำนวณต้นทุน** และวางแผนการใช้งาน
+6. **เชื่อมต่อกับระบบตรวจข้อสอบ** ได้อย่างไร้รอยต่อ
+
+ทำให้การตรวจข้อสอบลายมือเป็นเรื่องง่ายและรวดเร็วมากขึ้น! 🚀
+```
+```
+
+### การรวม PDF + OCR + Grading Workflow
+
+ตัวอย่างการใช้งานแบบครบวงจร:
+
+```r
+# 1. แยก PDF ตามข้อสอบ
+split_result <- split_pdf_by_question("exam_all.pdf", n_questions = 4)
+
+# 2. แปลง PDF เป็นภาพ (ใช้ pdftools หรือ external tools)
+# (ขั้นตอนนี้อาจต้องใช้เครื่องมือภายนอก)
+
+# 3. OCR ภาพลายมือ
+image_files <- list.files("images/", pattern = "\\.jpg$", full.names = TRUE)
+ocr_results <- ocr_batch_handwriting(
+  image_paths = image_files,
+  system_prompt = "สกัดคำตอบของนักเรียนจากลายมือให้ครบถ้วน"
+)
+
+# 4. เตรียมข้อมูลสำหรับการตรวจ
+responses_from_ocr <- ocr_results %>%
+  mutate(
+    student_id = str_extract(image_file, "\\d+"),
+    item_id = "item_006",
+    response_text = answer
+  ) %>%
+  select(student_id, item_id, response_text)
+
+# 5. ตรวจข้อสอบ
+final_results <- grade_responses(
+  responses = responses_from_ocr,
+  rubric = rubric,
+  key = answer_key,
+  .parallel = TRUE
+)
+
+# 6. ส่งออกผลลัพธ์
+export_results(final_results, "final_grades.xlsx", format = "xlsx")
 ```
 
 ## ⚡ Performance และ Best Practices
@@ -528,6 +1407,44 @@ for (i in 1:n_batches) {
 }
 ```
 
+### ปัญหา Model Names
+```r
+# ใช้ชื่อ model ที่ถูกต้อง
+correct_models <- c(
+  "gpt-4o-mini",    # ไม่ใช่ "gpt_4o-mini"
+  "gpt-4o",
+  "gpt-4-turbo",
+  "gpt-3.5-turbo"
+)
+
+# ตัวอย่างการใช้งาน
+results <- grade_responses(
+  responses = responses,
+  rubric = rubric,
+  key = answer_key,
+  model_config = "gpt-4o-mini"  # ชื่อที่ถูกต้อง
+)
+```
+
+### ปัญหา OCR และ PDF
+```r
+# ตรวจสอบไฟล์ก่อน OCR
+if (!file.exists("image.jpg")) {
+  stop("ไม่พบไฟล์ภาพ")
+}
+
+# ตรวจสอบ API key สำหรับ OCR
+if (Sys.getenv("OPENAI_API_KEY") == "") {
+  stop("ต้องตั้งค่า OPENAI_API_KEY สำหรับ OCR")
+}
+
+# PDF structure ที่ไม่เหมาะสม
+inspect_result <- inspect_pdf_structure("exam.pdf", 4)
+if (inspect_result$remainder > 0) {
+  warning("PDF อาจมีโครงสร้างที่ไม่เหมาะสมสำหรับการแยก")
+}
+```
+
 ### ปัญหา tidyllm
 ```r
 # ตรวจสอบการติดตั้ง tidyllm
@@ -535,6 +1452,16 @@ tidyllm::chat_test()
 
 # อัปเดต tidyllm
 install.packages("tidyllm")
+```
+
+### ปัญหา Parallel Processing บน macOS/Linux
+```r
+# หากมีปัญหากับ multisession
+if (.Platform$OS.type == "unix") {
+  future::plan(future::multicore)  # ใช้ multicore แทน multisession
+} else {
+  future::plan(future::multisession)
+}
 ```
 
 ## 📄 License และการอ้างอิง

@@ -89,9 +89,79 @@ results_custom <- grade_responses_multiagent(
 print(results_custom)
 
 # ------------------------------------------------------------------------------
-# Example 3: Parallel Processing for Large Datasets
+# Example 3: Using Different Models for Each Agent (REDUCE BIAS!)
 # ------------------------------------------------------------------------------
-cat("\n=== Example 3: Parallel Processing ===\n")
+cat("\n=== Example 3: Different Models for Each Agent ===\n")
+
+# IMPORTANT: Using different models reduces bias and increases diversity!
+# Agent 1 uses gpt-4o-mini (creative conceptual thinking)
+# Agent 2 uses gpt-5-nano (conservative detail checking)
+# Agent 3 uses gpt-4o (powerful consistency checking)
+# Agent 4 uses gpt-4o (synthesis)
+
+results_different_models <- grade_responses_multiagent(
+  responses = responses,
+  rubric = rubric,
+  key = key,
+  model_config_agent1 = list(model = "gpt-4o-mini", provider = "openai"),
+  model_config_agent2 = list(model = "gpt-5-nano", provider = "openai"),
+  model_config_agent3 = list(model = "gpt-4o", provider = "openai"),
+  model_config_agent4 = list(model = "gpt-4o", provider = "openai"),
+  .progress = TRUE
+)
+
+cat("\n--- Results with Different Models ---\n")
+print(results_different_models)
+
+# ------------------------------------------------------------------------------
+# Example 4: Different Models AND Parameters
+# ------------------------------------------------------------------------------
+cat("\n=== Example 4: Different Models AND Parameters ===\n")
+
+# Combine different models with different temperatures for maximum diversity
+# Higher temperature = more creative/variable
+# Lower temperature = more conservative/deterministic
+
+results_diverse <- grade_responses_multiagent(
+  responses = responses,
+  rubric = rubric,
+  key = key,
+
+  # Agent 1: Creative conceptual grader
+  model_config_agent1 = "gpt-4o-mini",
+  .temperature_agent1 = 0.7,  # Higher temp for creative thinking
+  .top_p_agent1 = 0.95,
+
+  # Agent 2: Conservative detail grader
+  model_config_agent2 = "gpt-5-nano",
+  .temperature_agent2 = 0.3,  # Lower temp for consistent detail checking
+  .top_p_agent2 = 0.85,
+
+  # Agent 3: Balanced consistency checker
+  model_config_agent3 = "gpt-4o",
+  .temperature_agent3 = 0.5,  # Balanced approach
+
+  # Agent 4: Moderately creative synthesizer
+  model_config_agent4 = "gpt-4o",
+  .temperature_agent4 = 0.6,  # Slightly creative for good feedback
+
+  max_iterations = 3,
+  .progress = TRUE
+)
+
+cat("\n--- Results with Diverse Configurations ---\n")
+print(results_diverse)
+
+cat("\n--- Score Statistics ---\n")
+cat("Mean Agent 1 score:", round(mean(results_diverse$agent1_score), 2), "\n")
+cat("Mean Agent 2 score:", round(mean(results_diverse$agent2_score), 2), "\n")
+cat("Mean final score:", round(mean(results_diverse$total_score), 2), "\n")
+cat("Mean score difference:", round(mean(results_diverse$score_difference), 2), "\n")
+
+# ------------------------------------------------------------------------------
+# Example 5: Parallel Processing for Large Datasets
+# ------------------------------------------------------------------------------
+cat("\n=== Example 5: Parallel Processing ===\n")
 
 # For large datasets, use parallel processing
 # Note: This example assumes you have more responses

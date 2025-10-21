@@ -10,12 +10,24 @@ grade_responses_multiagent(
   key = NULL,
   template_path = NULL,
   model_config = NULL,
+  model_config_agent1 = NULL,
+  model_config_agent2 = NULL,
+  model_config_agent3 = NULL,
+  model_config_agent4 = NULL,
   system_prompt_agent1 = NULL,
   system_prompt_agent2 = NULL,
   max_iterations = 2,
   consistency_threshold = 0.2,
   .temperature = NULL,
+  .temperature_agent1 = NULL,
+  .temperature_agent2 = NULL,
+  .temperature_agent3 = NULL,
+  .temperature_agent4 = NULL,
   .top_p = NULL,
+  .top_p_agent1 = NULL,
+  .top_p_agent2 = NULL,
+  .top_p_agent3 = NULL,
+  .top_p_agent4 = NULL,
   .progress = TRUE,
   .parallel = FALSE,
   .cores = NULL
@@ -30,7 +42,15 @@ grade_responses_multiagent(
 
 \item{template_path}{Path to grading template file}
 
-\item{model_config}{List with model configuration (model name, etc.)}
+\item{model_config}{Default model configuration for all agents (fallback)}
+
+\item{model_config_agent1}{Model config for Agent 1 (grader 1)}
+
+\item{model_config_agent2}{Model config for Agent 2 (grader 2)}
+
+\item{model_config_agent3}{Model config for Agent 3 (consistency checker)}
+
+\item{model_config_agent4}{Model config for Agent 4 (feedback synthesizer)}
 
 \item{system_prompt_agent1}{Custom system prompt for first grader (optional)}
 
@@ -40,9 +60,25 @@ grade_responses_multiagent(
 
 \item{consistency_threshold}{Score difference threshold for consistency (default: 0.2)}
 
-\item{.temperature}{Temperature parameter for LLM}
+\item{.temperature}{Default temperature for all agents}
 
-\item{.top_p}{Top_p parameter for LLM}
+\item{.temperature_agent1}{Temperature for Agent 1}
+
+\item{.temperature_agent2}{Temperature for Agent 2}
+
+\item{.temperature_agent3}{Temperature for Agent 3}
+
+\item{.temperature_agent4}{Temperature for Agent 4}
+
+\item{.top_p}{Default top_p for all agents}
+
+\item{.top_p_agent1}{Top_p for Agent 1}
+
+\item{.top_p_agent2}{Top_p for Agent 2}
+
+\item{.top_p_agent3}{Top_p for Agent 3}
+
+\item{.top_p_agent4}{Top_p for Agent 4}
 
 \item{.progress}{Show progress bar (default: TRUE)}
 
@@ -56,10 +92,11 @@ Data frame with grading results including multiagent metadata (agent1_score, age
 \description{
 Grade responses using a multiagent system with two independent graders (Agent 1 & 2),
 a consistency checker (Agent 3), and a feedback synthesizer (Agent 4).
+Each agent can use different models and parameters to reduce bias and increase diversity of perspectives.
 
 The system works as follows:
 \itemize{
-  \item Agent 1 & 2: Two independent graders assess the same response with different perspectives
+  \item Agent 1 & 2: Two independent graders assess the same response with different perspectives and potentially different models
   \item Agent 3: Checks consistency between the two graders' results
   \item If inconsistent: Provides feedback and triggers re-grading (up to max_iterations)
   \item If consistent: Proceeds to synthesis
@@ -70,6 +107,7 @@ The system works as follows:
 The multiagent system provides more reliable grading through:
 \itemize{
   \item Multiple perspectives: Two graders with different focus areas
+  \item Model diversity: Each agent can use different LLM models to reduce bias
   \item Quality control: Automatic consistency checking
   \item Iterative refinement: Re-grading when results diverge
   \item Rich feedback: Synthesized insights from multiple evaluators
@@ -79,6 +117,13 @@ Default agent prompts:
 \itemize{
   \item Agent 1: Focuses on conceptual understanding and analytical thinking
   \item Agent 2: Focuses on detail and completeness
+}
+
+Agent-specific configurations:
+\itemize{
+  \item Each agent can have its own model (e.g., gpt-4o-mini for Agent 1, gpt-5-nano for Agent 2)
+  \item Each agent can have its own temperature and top_p parameters
+  \item If not specified, agents fallback to default model_config, .temperature, and .top_p
 }
 
 Output includes additional columns:
@@ -97,36 +142,77 @@ responses <- read_csv("data/responses.csv")
 rubric <- load_rubric("rubric/item_001.md")
 key <- load_answer_key("rubric/item_001_key.md")
 
-# Basic multiagent grading with default settings
+# Basic multiagent grading (all use same model)
 results <- grade_responses_multiagent(responses, rubric, key)
 
-# View multiagent-specific metadata
-head(results[, c("student_id", "total_score", "agent1_score",
-                  "agent2_score", "was_consistent")])
+# Use different models for each agent to reduce bias
+results <- grade_responses_multiagent(
+  responses, rubric, key,
+  model_config_agent1 = list(model = "gpt-4o-mini", provider = "openai"),
+  model_config_agent2 = list(model = "gpt-5-nano", provider = "openai"),
+  model_config_agent3 = list(model = "gpt-4o", provider = "openai"),
+  model_config_agent4 = list(model = "gpt-4o", provider = "openai")
+)
 
-# With custom prompts for different perspectives
+# Different models AND parameters for creative vs conservative grading
+results <- grade_responses_multiagent(
+  responses, rubric, key,
+  model_config_agent1 = "gpt-4o-mini",
+  model_config_agent2 = "gpt-5-nano",
+  .temperature_agent1 = 0.7,  # More creative for conceptual grading
+  .temperature_agent2 = 0.3,  # More conservative for detail grading
+  .temperature_agent3 = 0.5,  # Balanced for consistency checking
+  .temperature_agent4 = 0.6   # Slightly creative for synthesis
+)
+
+# With custom prompts and different perspectives
 results <- grade_responses_multiagent(
   responses, rubric, key,
   system_prompt_agent1 = "ให้คะแนนโดยเน้นแนวคิดและความเข้าใจ",
   system_prompt_agent2 = "ให้คะแนนโดยเน้นรายละเอียดและความสมบูรณ์",
+  model_config_agent1 = "gpt-4o-mini",
+  model_config_agent2 = "gpt-5-nano",
   max_iterations = 3,
   consistency_threshold = 0.15
 )
 
-# With parallel processing for multiple responses
+# With parallel processing
 results <- grade_responses_multiagent(
   responses, rubric, key,
+  model_config_agent1 = "gpt-4o-mini",
+  model_config_agent2 = "gpt-5-nano",
   .parallel = TRUE,
   .cores = 4
 )
 
-# Analyze consistency
+# Advanced: Different models with custom parameters for each agent
+results <- grade_responses_multiagent(
+  responses, rubric, key,
+  # Agent 1: Creative thinking with higher temperature
+  model_config_agent1 = list(model = "gpt-4o-mini", provider = "openai"),
+  .temperature_agent1 = 0.8,
+  .top_p_agent1 = 0.95,
+
+  # Agent 2: Conservative detailed checking with lower temperature
+  model_config_agent2 = list(model = "gpt-5-nano", provider = "openai"),
+  .temperature_agent2 = 0.2,
+  .top_p_agent2 = 0.85,
+
+  # Agent 3: Balanced consistency checker
+  model_config_agent3 = list(model = "gpt-4o", provider = "openai"),
+  .temperature_agent3 = 0.5,
+
+  # Agent 4: Synthesis with moderate creativity
+  model_config_agent4 = list(model = "gpt-4o", provider = "openai"),
+  .temperature_agent4 = 0.6
+)
+
+# Analyze results
 summary(results$was_consistent)
 mean(results$score_difference)
 
 # View cases where graders disagreed
 disagreed <- results[!results$was_consistent, ]
-view_student_results(disagreed, student_id = disagreed$student_id[1])
 }
 }
 \seealso{

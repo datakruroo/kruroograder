@@ -368,11 +368,17 @@ create_grading_schema <- function() {
 #' @param result1 First grading result
 #' @param result2 Second grading result
 #' @param rubric Rubric object
-#' @param model_config Model configuration
+#' @param model_config Model configuration for Agent 3
 #' @param consistency_threshold Score difference threshold (default: 0.2 of max_score)
+#' @param .temperature Temperature parameter for Agent 3
+#' @param .top_p Top_p parameter for Agent 3
 #' @return List with is_consistent (boolean) and feedback (character)
 #' @keywords internal
-check_grading_consistency <- function(result1, result2, rubric, model_config = NULL, consistency_threshold = 0.2) {
+check_grading_consistency <- function(result1, result2, rubric,
+                                      model_config = NULL,
+                                      consistency_threshold = 0.2,
+                                      .temperature = NULL,
+                                      .top_p = NULL) {
 
   if (is.null(model_config)) {
     model_config <- list(model = "gpt-5-nano", provider = "openai")
@@ -438,7 +444,9 @@ Feedback รวม: {result2$overall_feedback}
     messages,
     tidyllm::openai(),
     .model = as.character(model_config$model %||% "gpt-5-nano"),
-    .json_schema = consistency_schema
+    .json_schema = consistency_schema,
+    .temperature = .temperature,
+    .top_p = .top_p
   )
 
   consistency_data <- tidyllm::get_reply_data(result)
@@ -462,10 +470,15 @@ Feedback รวม: {result2$overall_feedback}
 #' @param result2 Second grading result
 #' @param rubric Rubric object
 #' @param response_row Student response data
-#' @param model_config Model configuration
+#' @param model_config Model configuration for Agent 4
+#' @param .temperature Temperature parameter for Agent 4
+#' @param .top_p Top_p parameter for Agent 4
 #' @return List with synthesized grading result
 #' @keywords internal
-synthesize_multiagent_feedback <- function(result1, result2, rubric, response_row, model_config = NULL) {
+synthesize_multiagent_feedback <- function(result1, result2, rubric, response_row,
+                                          model_config = NULL,
+                                          .temperature = NULL,
+                                          .top_p = NULL) {
 
   if (is.null(model_config)) {
     model_config <- list(model = "gpt-5-nano", provider = "openai")
@@ -532,7 +545,9 @@ Feedback: {result2$overall_feedback}
     messages,
     tidyllm::openai(),
     .model = as.character(model_config$model %||% "gpt-5-nano"),
-    .json_schema = synthesis_schema
+    .json_schema = synthesis_schema,
+    .temperature = .temperature,
+    .top_p = .top_p
   )
 
   synthesis_data <- tidyllm::get_reply_data(result)
@@ -555,25 +570,48 @@ Feedback: {result2$overall_feedback}
 
 #' Grade Single Response with Multiagent System
 #'
-#' Grade a single response using two independent graders with consistency checking
+#' Grade a single response using two independent graders with consistency checking.
+#' Each agent can use different models and parameters.
 #'
 #' @param response_row Single row of response data
 #' @param rubric Rubric object
 #' @param key Answer key object
 #' @param template_path Path to template file
-#' @param model_config Model configuration
+#' @param model_config_agent1 Model config for Agent 1
+#' @param model_config_agent2 Model config for Agent 2
+#' @param model_config_agent3 Model config for Agent 3
+#' @param model_config_agent4 Model config for Agent 4
 #' @param system_prompt_agent1 System prompt for first grader
 #' @param system_prompt_agent2 System prompt for second grader
 #' @param max_iterations Maximum re-grading iterations (default: 2)
 #' @param consistency_threshold Consistency threshold (default: 0.2)
-#' @param .temperature Temperature parameter
-#' @param .top_p Top_p parameter
+#' @param .temperature_agent1 Temperature for Agent 1
+#' @param .temperature_agent2 Temperature for Agent 2
+#' @param .temperature_agent3 Temperature for Agent 3
+#' @param .temperature_agent4 Temperature for Agent 4
+#' @param .top_p_agent1 Top_p for Agent 1
+#' @param .top_p_agent2 Top_p for Agent 2
+#' @param .top_p_agent3 Top_p for Agent 3
+#' @param .top_p_agent4 Top_p for Agent 4
 #' @return Synthesized grading result
 #' @keywords internal
 grade_single_response_multiagent <- function(response_row, rubric, key, template_path,
-                                             model_config, system_prompt_agent1, system_prompt_agent2,
-                                             max_iterations = 2, consistency_threshold = 0.2,
-                                             .temperature = NULL, .top_p = NULL) {
+                                             model_config_agent1,
+                                             model_config_agent2,
+                                             model_config_agent3,
+                                             model_config_agent4,
+                                             system_prompt_agent1,
+                                             system_prompt_agent2,
+                                             max_iterations = 2,
+                                             consistency_threshold = 0.2,
+                                             .temperature_agent1 = NULL,
+                                             .temperature_agent2 = NULL,
+                                             .temperature_agent3 = NULL,
+                                             .temperature_agent4 = NULL,
+                                             .top_p_agent1 = NULL,
+                                             .top_p_agent2 = NULL,
+                                             .top_p_agent3 = NULL,
+                                             .top_p_agent4 = NULL) {
 
   schema <- create_grading_schema()
   prompt <- render_prompt(template_path, rubric, key, response_row)
@@ -583,7 +621,7 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
   consistency_feedback <- ""
 
   # Define helper function to grade with specific agent
-  grade_with_agent <- function(system_prompt, previous_feedback = NULL) {
+  grade_with_agent <- function(agent_num, system_prompt, model_config, temperature, top_p, previous_feedback = NULL) {
 
     # Add feedback to prompt if re-grading
     final_prompt <- if (!is.null(previous_feedback) && previous_feedback != "") {
@@ -603,8 +641,8 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
       tidyllm::openai(),
       .model = as.character(model_config$model %||% "gpt-5-nano"),
       .json_schema = schema,
-      .temperature = .temperature,
-      .top_p = .top_p
+      .temperature = temperature,
+      .top_p = top_p
     )
 
     graded_result <- tidyllm::get_reply_data(result)
@@ -623,13 +661,17 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
   while (iteration <= max_iterations && !is_consistent) {
     iteration <- iteration + 1
 
-    # Agent 1 and Agent 2: Grade independently
-    result1 <- grade_with_agent(system_prompt_agent1, consistency_feedback)
-    result2 <- grade_with_agent(system_prompt_agent2, consistency_feedback)
+    # Agent 1 and Agent 2: Grade independently with their own configs
+    result1 <- grade_with_agent(1, system_prompt_agent1, model_config_agent1, .temperature_agent1, .top_p_agent1, consistency_feedback)
+    result2 <- grade_with_agent(2, system_prompt_agent2, model_config_agent2, .temperature_agent2, .top_p_agent2, consistency_feedback)
 
     # Agent 3: Check consistency
     consistency_check <- check_grading_consistency(
-      result1, result2, rubric, model_config, consistency_threshold
+      result1, result2, rubric,
+      model_config_agent3,
+      consistency_threshold,
+      .temperature_agent3,
+      .top_p_agent3
     )
 
     is_consistent <- consistency_check$is_consistent
@@ -642,7 +684,10 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
     if (is_consistent || iteration > max_iterations) {
       # Agent 4: Synthesize feedback
       final_result <- synthesize_multiagent_feedback(
-        result1, result2, rubric, response_row, model_config
+        result1, result2, rubric, response_row,
+        model_config_agent4,
+        .temperature_agent4,
+        .top_p_agent4
       )
 
       # Add metadata
@@ -656,25 +701,38 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
 
   # This should not be reached, but as a safety net
   logger::log_warn("Multiagent grading did not converge properly")
-  return(synthesize_multiagent_feedback(result1, result2, rubric, response_row, model_config))
+  return(synthesize_multiagent_feedback(result1, result2, rubric, response_row, model_config_agent4, .temperature_agent4, .top_p_agent4))
 }
 
 #' Grade Student Responses with Multiagent System
 #'
 #' Grade responses using a multiagent system with two independent graders,
-#' consistency checking, and feedback synthesis
+#' consistency checking, and feedback synthesis. Each agent can use different
+#' models and parameters to reduce bias and increase diversity of perspectives.
 #'
 #' @param responses Data frame with student responses
 #' @param rubric Rubric object from load_rubric()
 #' @param key Answer key object from load_answer_key() (optional)
 #' @param template_path Path to grading template file
-#' @param model_config List with model configuration (model name, etc.)
+#' @param model_config Default model configuration for all agents (fallback)
+#' @param model_config_agent1 Model config for Agent 1 (grader 1)
+#' @param model_config_agent2 Model config for Agent 2 (grader 2)
+#' @param model_config_agent3 Model config for Agent 3 (consistency checker)
+#' @param model_config_agent4 Model config for Agent 4 (feedback synthesizer)
 #' @param system_prompt_agent1 Custom system prompt for first grader (optional)
 #' @param system_prompt_agent2 Custom system prompt for second grader (optional)
 #' @param max_iterations Maximum re-grading iterations when inconsistent (default: 2)
 #' @param consistency_threshold Score difference threshold for consistency (default: 0.2)
-#' @param .temperature Temperature parameter
-#' @param .top_p Top_p parameter
+#' @param .temperature Default temperature for all agents
+#' @param .temperature_agent1 Temperature for Agent 1
+#' @param .temperature_agent2 Temperature for Agent 2
+#' @param .temperature_agent3 Temperature for Agent 3
+#' @param .temperature_agent4 Temperature for Agent 4
+#' @param .top_p Default top_p for all agents
+#' @param .top_p_agent1 Top_p for Agent 1
+#' @param .top_p_agent2 Top_p for Agent 2
+#' @param .top_p_agent3 Top_p for Agent 3
+#' @param .top_p_agent4 Top_p for Agent 4
 #' @param .progress Show progress bar (default: TRUE)
 #' @param .parallel Use parallel processing (default: FALSE)
 #' @param .cores Number of cores for parallel processing
@@ -686,14 +744,27 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
 #' rubric <- load_rubric("rubric/item_001.md")
 #' key <- load_answer_key("rubric/item_001_key.md")
 #'
-#' # Multiagent grading with default settings
+#' # Multiagent grading with default settings (all use same model)
 #' results <- grade_responses_multiagent(responses, rubric, key)
 #'
-#' # With custom prompts for different perspectives
+#' # Use different models for each agent to reduce bias
+#' results <- grade_responses_multiagent(
+#'   responses, rubric, key,
+#'   model_config_agent1 = list(model = "gpt-4o-mini", provider = "openai"),
+#'   model_config_agent2 = list(model = "gpt-5-nano", provider = "openai"),
+#'   model_config_agent3 = list(model = "gpt-4o", provider = "openai"),
+#'   model_config_agent4 = list(model = "gpt-4o", provider = "openai"),
+#'   .temperature_agent1 = 0.7,  # More creative for conceptual grading
+#'   .temperature_agent2 = 0.3   # More conservative for detail grading
+#' )
+#'
+#' # With custom prompts and different parameters
 #' results <- grade_responses_multiagent(
 #'   responses, rubric, key,
 #'   system_prompt_agent1 = "ให้คะแนนโดยเน้นแนวคิดและความเข้าใจ",
 #'   system_prompt_agent2 = "ให้คะแนนโดยเน้นรายละเอียดและความสมบูรณ์",
+#'   model_config_agent1 = "gpt-4o-mini",
+#'   model_config_agent2 = "gpt-5-nano",
 #'   max_iterations = 3
 #' )
 #'
@@ -705,22 +776,72 @@ grade_single_response_multiagent <- function(response_row, rubric, key, template
 #' )
 #' }
 grade_responses_multiagent <- function(responses, rubric, key = NULL,
-                                       template_path = NULL, model_config = NULL,
-                                       system_prompt_agent1 = NULL, system_prompt_agent2 = NULL,
-                                       max_iterations = 2, consistency_threshold = 0.2,
-                                       .temperature = NULL, .top_p = NULL,
-                                       .progress = TRUE, .parallel = FALSE, .cores = NULL) {
+                                       template_path = NULL,
+                                       model_config = NULL,
+                                       model_config_agent1 = NULL,
+                                       model_config_agent2 = NULL,
+                                       model_config_agent3 = NULL,
+                                       model_config_agent4 = NULL,
+                                       system_prompt_agent1 = NULL,
+                                       system_prompt_agent2 = NULL,
+                                       max_iterations = 2,
+                                       consistency_threshold = 0.2,
+                                       .temperature = NULL,
+                                       .temperature_agent1 = NULL,
+                                       .temperature_agent2 = NULL,
+                                       .temperature_agent3 = NULL,
+                                       .temperature_agent4 = NULL,
+                                       .top_p = NULL,
+                                       .top_p_agent1 = NULL,
+                                       .top_p_agent2 = NULL,
+                                       .top_p_agent3 = NULL,
+                                       .top_p_agent4 = NULL,
+                                       .progress = TRUE,
+                                       .parallel = FALSE,
+                                       .cores = NULL) {
 
   # Set defaults
   if (is.null(template_path)) {
     template_path <- system.file("templates", "grade_template.md", package = "kruroograder")
   }
 
+  # Default model config (fallback for all agents)
   if (is.null(model_config)) {
     model_config <- list(model = "gpt-5-nano", provider = "openai")
   } else if (is.character(model_config)) {
     model_config <- list(model = model_config, provider = "openai")
   }
+
+  # Helper function to normalize model config
+  normalize_model_config <- function(config, default_config) {
+    if (is.null(config)) {
+      return(default_config)
+    } else if (is.character(config)) {
+      return(list(model = config, provider = "openai"))
+    } else if (is.list(config)) {
+      return(config)
+    } else {
+      return(default_config)
+    }
+  }
+
+  # Set model configs for each agent (fallback to default if not specified)
+  model_config_agent1 <- normalize_model_config(model_config_agent1, model_config)
+  model_config_agent2 <- normalize_model_config(model_config_agent2, model_config)
+  model_config_agent3 <- normalize_model_config(model_config_agent3, model_config)
+  model_config_agent4 <- normalize_model_config(model_config_agent4, model_config)
+
+  # Set temperature for each agent (fallback to default if not specified)
+  temp_agent1 <- .temperature_agent1 %||% .temperature
+  temp_agent2 <- .temperature_agent2 %||% .temperature
+  temp_agent3 <- .temperature_agent3 %||% .temperature
+  temp_agent4 <- .temperature_agent4 %||% .temperature
+
+  # Set top_p for each agent (fallback to default if not specified)
+  top_p_agent1 <- .top_p_agent1 %||% .top_p
+  top_p_agent2 <- .top_p_agent2 %||% .top_p
+  top_p_agent3 <- .top_p_agent3 %||% .top_p
+  top_p_agent4 <- .top_p_agent4 %||% .top_p
 
   if (is.null(.cores)) {
     .cores <- max(1, future::availableCores() - 1)
@@ -746,10 +867,26 @@ grade_responses_multiagent <- function(responses, rubric, key = NULL,
       }
 
       grade_single_response_multiagent(
-        response_row, rubric, key, template_path,
-        model_config, system_prompt_agent1, system_prompt_agent2,
-        max_iterations, consistency_threshold,
-        .temperature, .top_p
+        response_row = response_row,
+        rubric = rubric,
+        key = key,
+        template_path = template_path,
+        model_config_agent1 = model_config_agent1,
+        model_config_agent2 = model_config_agent2,
+        model_config_agent3 = model_config_agent3,
+        model_config_agent4 = model_config_agent4,
+        system_prompt_agent1 = system_prompt_agent1,
+        system_prompt_agent2 = system_prompt_agent2,
+        max_iterations = max_iterations,
+        consistency_threshold = consistency_threshold,
+        .temperature_agent1 = temp_agent1,
+        .temperature_agent2 = temp_agent2,
+        .temperature_agent3 = temp_agent3,
+        .temperature_agent4 = temp_agent4,
+        .top_p_agent1 = top_p_agent1,
+        .top_p_agent2 = top_p_agent2,
+        .top_p_agent3 = top_p_agent3,
+        .top_p_agent4 = top_p_agent4
       )
 
     }, error = function(e) {
@@ -784,6 +921,8 @@ grade_responses_multiagent <- function(responses, rubric, key = NULL,
 
   logger::log_info("Starting multiagent grading of {n_responses} responses")
   logger::log_info("Max iterations: {max_iterations}, Consistency threshold: {consistency_threshold}")
+  logger::log_info("Agent 1 model: {model_config_agent1$model}, Agent 2 model: {model_config_agent2$model}")
+  logger::log_info("Agent 3 model: {model_config_agent3$model}, Agent 4 model: {model_config_agent4$model}")
   logger::log_info("Parallel processing: {.parallel}, Cores: {.cores}")
 
   # Configure future plan

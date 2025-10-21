@@ -555,14 +555,75 @@ results <- grade_responses_multiagent(
 )
 ```
 
+#### ใช้โมเดลต่างกันสำหรับแต่ละ Agent (แนะนำ!)
+
+```r
+# 🎯 BEST PRACTICE: ใช้โมเดลต่างกันเพื่อลด bias และเพิ่มความหลากหลาย
+results <- grade_responses_multiagent(
+  responses = responses,
+  rubric = rubric,
+  key = key,
+
+  # Agent 1: โมเดลสำหรับการคิดแบบ conceptual
+  model_config_agent1 = list(model = "gpt-4o-mini", provider = "openai"),
+
+  # Agent 2: โมเดลสำหรับการตรวจรายละเอียด
+  model_config_agent2 = list(model = "gpt-5-nano", provider = "openai"),
+
+  # Agent 3: โมเดลที่แข็งแกร่งสำหรับตรวจสอบความสอดคล้อง
+  model_config_agent3 = list(model = "gpt-4o", provider = "openai"),
+
+  # Agent 4: โมเดลสำหรับสังเคราะห์ feedback
+  model_config_agent4 = list(model = "gpt-4o", provider = "openai"),
+
+  .progress = TRUE
+)
+```
+
+#### ปรับแต่ง Temperature และ Top_p สำหรับแต่ละ Agent
+
+```r
+# ใช้โมเดลต่างกัน + พารามิเตอร์ต่างกันเพื่อความหลากหลายสูงสุด
+results <- grade_responses_multiagent(
+  responses = responses,
+  rubric = rubric,
+  key = key,
+
+  # Agent 1: Creative conceptual thinking
+  model_config_agent1 = "gpt-4o-mini",
+  .temperature_agent1 = 0.7,  # สูงกว่า = คิดสร้างสรรค์มากขึ้น
+  .top_p_agent1 = 0.95,
+
+  # Agent 2: Conservative detail checking
+  model_config_agent2 = "gpt-5-nano",
+  .temperature_agent2 = 0.3,  # ต่ำกว่า = เข้มงวดและสม่ำเสมอมากขึ้น
+  .top_p_agent2 = 0.85,
+
+  # Agent 3: Balanced consistency checker
+  model_config_agent3 = "gpt-4o",
+  .temperature_agent3 = 0.5,  # กลางๆ = สมดุล
+
+  # Agent 4: Synthesis with moderate creativity
+  model_config_agent4 = "gpt-4o",
+  .temperature_agent4 = 0.6,  # ค่อนข้างสร้างสรรค์เพื่อ feedback ที่ดี
+
+  max_iterations = 3,
+  .progress = TRUE
+)
+```
+
 #### Multiagent + Parallel Processing
 
 ```r
-# สำหรับข้อสอบจำนวนมาก
+# สำหรับข้อสอบจำนวนมาก พร้อมใช้โมเดลต่างกัน
 results <- grade_responses_multiagent(
   responses = large_responses,
   rubric = rubric,
   key = key,
+  model_config_agent1 = "gpt-4o-mini",
+  model_config_agent2 = "gpt-5-nano",
+  model_config_agent3 = "gpt-4o",
+  model_config_agent4 = "gpt-4o",
   .parallel = TRUE,
   .cores = 4,
   .progress = TRUE
@@ -577,6 +638,12 @@ results <- grade_responses_multiagent(
 | `consistency_threshold` | 0.2 | เกณฑ์ความแตกต่างของคะแนน (สัมพัทธ์กับคะแนนเต็ม) |
 | `system_prompt_agent1` | มุมมองแนวคิด | system prompt สำหรับ agent ตัวที่ 1 |
 | `system_prompt_agent2` | มุมมองรายละเอียด | system prompt สำหรับ agent ตัวที่ 2 |
+| `model_config_agent1` | NULL (ใช้ model_config) | Model config สำหรับ agent 1 |
+| `model_config_agent2` | NULL (ใช้ model_config) | Model config สำหรับ agent 2 |
+| `model_config_agent3` | NULL (ใช้ model_config) | Model config สำหรับ agent 3 |
+| `model_config_agent4` | NULL (ใช้ model_config) | Model config สำหรับ agent 4 |
+| `.temperature_agent1-4` | NULL (ใช้ .temperature) | Temperature สำหรับแต่ละ agent |
+| `.top_p_agent1-4` | NULL (ใช้ .top_p) | Top_p สำหรับแต่ละ agent |
 
 ### การวิเคราะห์ผลลัพธ์ Multiagent
 
